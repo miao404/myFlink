@@ -1,8 +1,4 @@
-//
-// Created by root on 2/6/25.
-//
-
-#include "core/operators/StreamExpand.h"
+#include "streaming/api/operators/StreamExpand.h"
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 #include "OutputTest.h"

@@ -1,19 +1,15 @@
-//
-// Created by c00572813 on 2025/2/18.
-//
 #include <gtest/gtest.h>
 #include <iostream>
 #include <nlohmann/json.hpp>
-#include "table/vectorbatch/VectorBatch.h"
+#include "table/data/vectorbatch/VectorBatch.h"
 #include "OmniOperatorJIT/core/test/util/test_util.h"
 #include "core/graph/OperatorConfig.h"
 #include "table/runtime/operators/window/LocalSlicingWindowAggOperator.h"
 #include "test/core/operators/OutputTest.h"
 #include "table/runtime/operators/window/slicing/SliceAssigners.h"
-#include "operators/StreamOperatorFactory.h"
-#include "tasks/OperatorChain.h"
-#include "taskmanager/RuntimeEnvironment.h"
-#include "task/OperatorChain.h"
+#include "streaming/api/operators/StreamOperatorFactory.h"
+#include "streaming/runtime/tasks/OperatorChain.h"
+#include "taskmanager/OmniRuntimeEnvironment.h"
 #include "table/typeutils/RowDataSerializer.h"
 
 using json = nlohmann::json;
@@ -528,11 +524,13 @@ TEST(LocalWindowAggTest, SumAggTest) {
     );
 
     auto *output = new BatchOutputTest();
-
-    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(new RuntimeEnvironment
-        (new TaskInfoImpl("StreamingJoinOperatorTest", 1, 1, 0)));
-    std::vector<RowField> typeInfo{RowField("col0", BasicLogicalType::BIGINT)};
-    TypeSerializer *ser = new RowDataSerializer(new RowType(false, typeInfo));
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
+    std::vector<omnistream::RowField> typeInfo{omnistream::RowField("col0", BasicLogicalType::BIGINT)};
+    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, typeInfo));
 
     auto* windowAggOperator = dynamic_cast<LocalSlicingWindowAggOperator*>(
             omnistream::StreamOperatorFactory::createOperatorAndCollector(opConfig, output));
@@ -589,10 +587,13 @@ TEST(LocalWindowAggTest, NexmarkQ5Test1) {
     );
 
     auto* output = new BatchOutputTest();
-    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(new RuntimeEnvironment
-        (new TaskInfoImpl("StreamingJoinOperatorTest", 1, 1, 0)));
-    std::vector<RowField> typeInfo{RowField("col0", BasicLogicalType::BIGINT)};
-    TypeSerializer *ser = new RowDataSerializer(new RowType(false, typeInfo));
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
+    std::vector<omnistream::RowField> typeInfo{omnistream::RowField("col0", BasicLogicalType::BIGINT)};
+    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, typeInfo));
 
     auto* windowAggOperator = dynamic_cast<LocalSlicingWindowAggOperator*>(
             omnistream::StreamOperatorFactory::createOperatorAndCollector(opConfig, output));
@@ -676,10 +677,13 @@ TEST(LocalWindowAggTest, NexmarkQ8Test1) {
     );
 
     auto* output = new BatchOutputTest();
-    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(new RuntimeEnvironment
-        (new TaskInfoImpl("StreamingJoinOperatorTest", 1, 1, 0)));
-    std::vector<RowField> typeInfo{RowField("col0", BasicLogicalType::BIGINT)};
-    TypeSerializer *ser = new RowDataSerializer(new RowType(false, typeInfo));
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
+    std::vector<omnistream::RowField> typeInfo{omnistream::RowField("col0", BasicLogicalType::BIGINT)};
+    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, typeInfo));
 
     auto* windowAggOperator = dynamic_cast<LocalSlicingWindowAggOperator*>(
             omnistream::StreamOperatorFactory::createOperatorAndCollector(opConfig, output));
@@ -737,10 +741,13 @@ TEST(LocalWindowAggTest, NexmarkQ7Test) {
     );
 
     auto* output = new BatchOutputTest();
-    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(new RuntimeEnvironment
-        (new TaskInfoImpl("StreamingJoinOperatorTest", 1, 1, 0)));
-    std::vector<RowField> typeInfo{RowField("col0", BasicLogicalType::BIGINT)};
-    TypeSerializer *ser = new RowDataSerializer(new RowType(false, typeInfo));
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
+    std::vector<omnistream::RowField> typeInfo{omnistream::RowField("col0", BasicLogicalType::BIGINT)};
+    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, typeInfo));
 
     auto* windowAggOperator = dynamic_cast<LocalSlicingWindowAggOperator*>(
             omnistream::StreamOperatorFactory::createOperatorAndCollector(opConfig, output));

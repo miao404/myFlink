@@ -96,6 +96,7 @@ public class OmniDescriptiveStatisticsHistogram extends DescriptiveStatisticsHis
     /**
      * Close the histogram and release any resources associated with it.
      */
+    @Override
     public void close() {
         isClosed = true;
     }

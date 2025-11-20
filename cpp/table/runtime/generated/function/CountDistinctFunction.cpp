@@ -1,14 +1,17 @@
-//
-// Created by f30029561 on 2025/2/13.
-//
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *          http://license.coscl.org.cn/MulanPSL2
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ */
 
 #include "CountDistinctFunction.h"
 #include "typeutils/InternalSerializers.h"
 #include "runtime/dataview/PerKeyStateDataViewStore.h"
-
-// RuntimeContext* GeneratedAggsHandleFunctionCount::getRuntimeContext() {
-//     return this->store->getRuntimeContext();
-// }
 
 bool CountDistinctFunction::equaliser(BinaryRowData *r1, BinaryRowData *r2)
 {
@@ -79,9 +82,11 @@ void CountDistinctFunction::accumulate(RowData *accInput)
             isFieldNull ? std::nullopt : std::optional<long> { fieldValue };
         std::optional<long> value = distinctMapView->get(distinctKey);
         long trueValue = value.has_value() ? value.value() : 0L;
-        long existed = ((long)trueValue) & (1L << 0);
+        unsigned long unsignedTrueValue = static_cast<unsigned long>(trueValue);
+        unsigned long existed = unsignedTrueValue & (1UL << 0);
         if (existed == 0) {
-            trueValue = ((long)trueValue) | (1L << 0);
+            unsignedTrueValue |= (1UL << 0);
+            trueValue = static_cast<long>(unsignedTrueValue);
             isDistinctValueChanged = true;
             if (!isFieldNull) {
                 if (!valueIsNull) {
@@ -133,9 +138,11 @@ void CountDistinctFunction::accumulate(omnistream::VectorBatch *input, const std
         std::optional<long> distinctKey = isFieldNull ? std::nullopt : std::optional<long>{fieldValue};
         std::optional<long> value = distinctMapView->get(distinctKey);
         long trueValue = value.has_value() ? value.value() : 0L;
-        long existed = ((long) trueValue) & (1L << 0);
+        uint64_t uValue = static_cast<uint64_t>(trueValue);
+        long existed = uValue & (1 << 0);
         if (existed == 0) {
-            trueValue = ((long)trueValue) | (1L << 0);
+            uValue = uValue | (1 << 0);
+            trueValue = static_cast<long>(uValue);
             if (!isFieldNull) {
                 if (!valueIsNull) {
                     aggCount++;
@@ -153,17 +160,14 @@ void CountDistinctFunction::accumulate(omnistream::VectorBatch *input, const std
 
 void CountDistinctFunction::retract(RowData *retractInput)
 {
-    //throw std::runtime_error("This function does not require retract method, but the retract method is called.");
 }
 
 void CountDistinctFunction::retract(omnistream::VectorBatch* input, const std::vector<int>& indices)
 {
-    // throw std::runtime_error("This function does not require retract method, but the retract method is called.");
 }
 
 void CountDistinctFunction::merge(RowData *otherAcc)
 {
-    //throw std::runtime_error("This function does not require merge method, but the merge method is called.");
 }
 
 
@@ -177,7 +181,7 @@ void CountDistinctFunction::setAccumulators(RowData *acc)
 
 void CountDistinctFunction::resetAccumulators()
 {
-    aggCount = ((long)0L);
+    aggCount = (static_cast<long>(0L));
     valueIsNull = false;
     distinctMapView->clear();
     LOG("Reset Acc. Count:  " << aggCount << " countIsNull: " << valueIsNull)

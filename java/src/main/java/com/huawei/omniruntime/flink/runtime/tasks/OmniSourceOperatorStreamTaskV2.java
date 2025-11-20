@@ -1,3 +1,24 @@
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one
+ * or more contributor license agreements.  See the NOTICE file
+ * distributed with this work for additional information
+ * regarding copyright ownership.  The ASF licenses this file
+ * to you under the Apache License, Version 2.0 (the
+ * "License"); you may not use this file except in compliance
+ * with the License.  You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ * We modify this part of the code based on Apache Flink to implement native execution of Flink operators.
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ */
+
 package com.huawei.omniruntime.flink.runtime.tasks;
 
 import com.huawei.omniruntime.flink.streaming.runtime.io.OmniStreamTaskSourceInput;
@@ -43,7 +64,15 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nullable;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.SortedMap;
+import java.util.SortedSet;
+import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 
@@ -54,11 +83,13 @@ public class OmniSourceOperatorStreamTaskV2<T> extends OmniStreamTask<T, SourceO
     private static final Logger LOG = LoggerFactory.getLogger(OmniSourceOperatorStreamTaskV2.class);
 
     private PushingAsyncDataInput.DataOutput output;
+
     /**
      * Contains information about all checkpoints where RPC from checkpoint coordinator arrives
      * before the source reader triggers it. (Common case)
      */
     private SortedMap<Long, UntriggeredCheckpoint> untriggeredCheckpoints = new TreeMap<>();
+
     /**
      * Contains the checkpoints that are triggered by the source but the RPC from checkpoint
      * coordinator has yet to arrive. This may happen if the barrier is inserted as an event into
@@ -66,11 +97,13 @@ public class OmniSourceOperatorStreamTaskV2<T> extends OmniStreamTask<T, SourceO
      * before receiving Flink's checkpoint RPC. (Rare case)
      */
     private SortedSet<Long> triggeredCheckpoints = new TreeSet<>();
+
     /**
      * Blocks input until the RPC call has been received that corresponds to the triggered
      * checkpoint. This future must only be accessed and completed in the mailbox thread.
      */
     private CompletableFuture<Void> waitForRPC = FutureUtils.completedVoidFuture();
+
     /** Only set for externally induced sources. See also {@link #isExternallyInducedSource()}. */
     private StreamTaskExternallyInducedSourceInput<T> externallyInducedSourceInput;
 
@@ -84,6 +117,12 @@ public class OmniSourceOperatorStreamTaskV2<T> extends OmniStreamTask<T, SourceO
     public void init() throws Exception {
         super.init();
         final SourceOperator<T, ?> sourceOperator = this.mainOperator;
+        /*
+         * Check if sourceOperator is null before accessing to prevent NullPointerException
+         */
+        if (sourceOperator == null) {
+            throw new IllegalStateException("Source operator cannot be null");
+        }
         // reader initialization, which cannot happen in the constructor due to the
         // lazy metric group initialization. We do this here now, rather than
         // later (in open()) so that we can access the reader when setting up the

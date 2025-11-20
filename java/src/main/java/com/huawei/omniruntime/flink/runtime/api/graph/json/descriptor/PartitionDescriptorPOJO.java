@@ -89,7 +89,6 @@ public class PartitionDescriptorPOJO {
         return numberOfSubpartitions;
     }
 
-
     public int getConnectionIndex() {
         return connectionIndex;
     }
@@ -112,8 +111,12 @@ public class PartitionDescriptorPOJO {
 
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         checkState(o instanceof PartitionDescriptorPOJO);
         PartitionDescriptorPOJO that = (PartitionDescriptorPOJO) o;
         return totalNumberOfPartitions == that.totalNumberOfPartitions

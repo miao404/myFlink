@@ -1,6 +1,13 @@
-//
-// Created by root on 9/5/24.
-//
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *          http://license.coscl.org.cn/MulanPSL2
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ */
 
 #include <stdexcept>
 #include "RowData.h"
@@ -12,12 +19,16 @@
 
 using namespace omniruntime::type;
 
-FieldGetter* RowData::createFieldGetter(LogicalType* fieldType, int fieldPos) {
+FieldGetter* RowData::createFieldGetter(LogicalType* fieldType, int fieldPos)
+{
+    if (!fieldType) {
+        THROW_LOGIC_EXCEPTION("field type is null");
+    }
     switch (fieldType->getTypeId()) {
         case DataTypeId::OMNI_LONG:
             return new FieldGetter(fieldPos, reinterpret_cast<getFieldByPosFn>(&RowData::getLong));
         case DataTypeId::OMNI_VARCHAR:
-            return new FieldGetter(fieldPos, reinterpret_cast<getFieldByPosFn>(&RowData::getLong));
+            return new FieldGetter(fieldPos, reinterpret_cast<getFieldByPosFn>(&RowData::getStringView));
         case DataTypeId::OMNI_TIME_WITHOUT_TIME_ZONE:
             return new FieldGetter(fieldPos, reinterpret_cast<getFieldByPosFn>(&RowData::getTimestamp));
         case DataTypeId::OMNI_TIMESTAMP_WITHOUT_TIME_ZONE: {
@@ -45,24 +56,26 @@ FieldGetter* RowData::createFieldGetter(LogicalType* fieldType, int fieldPos) {
 
 RowData::RowData(int rowDataTypeId) : rowDataTypeID_(rowDataTypeId) {}
 
-int RowData::getRowDataTypeId() const {
+int RowData::getRowDataTypeId() const
+{
     return rowDataTypeID_;
 }
 
-/** 
+/**
  * Implement here becuase there's no definition for inherited class `GenericRowData` and `JoinedRowData`
- * 
  * Override in `GenericRowData` and `JoinedRowData` and delete this interface later
  */
-BinaryStringData* RowData::getString(int pos) {
+BinaryStringData* RowData::getString(int pos)
+{
     return nullptr;
 }
 
-void RowData::printRow() {
-    std::cout<<"row:";
-    for(int i = 0; i < getArity(); i++) {
+void RowData::printRow()
+{
+    std::cout << "row:";
+    for (int i = 0; i < getArity(); i++) {
         if (isNullAt(i)) {
-            std::cout<<"null|";
+            std::cout << "null|";
         } else {
             std::cout << *getLong(i) << "|";
         }

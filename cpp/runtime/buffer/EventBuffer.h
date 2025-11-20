@@ -1,9 +1,13 @@
 /*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *          http://license.coscl.org.cn/MulanPSL2
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
  */
-//
-// Created by root on 3/10/25.
-//
 
 #ifndef EVENTBUFFER_H
 #define EVENTBUFFER_H
@@ -12,15 +16,14 @@
 #include "ObjectBuffer.h"
 
 
-namespace omnistream
-{
-    class EventBuffer : public ObjectBuffer, public std::enable_shared_from_this<EventBuffer>
-    {
+namespace omnistream {
+    class EventBuffer : public ObjectBuffer, public std::enable_shared_from_this<EventBuffer> {
     public:
-        EventBuffer(int event): event_(event)
+        explicit EventBuffer(int event): event_(event)
         {
             LOG_TRACE("constructor")
             readerIndex_ = 0;
+            isCompressed_ = false;
         };
         ~EventBuffer() override
         {
@@ -42,19 +45,19 @@ namespace omnistream
             return true;
         }
 
-        std::shared_ptr<ObjectBuffer> RetainBuffer() override
+        std::shared_ptr<Buffer> RetainBuffer() override
         {
             LOG("EventBuffer::RetainBuffer");
             return shared_from_this();
         }
 
-        std::shared_ptr<ObjectBuffer> ReadOnlySlice() override
+        std::shared_ptr<Buffer> ReadOnlySlice() override
         {
             LOG("EventBuffer::ReadOnlySlice");
             return shared_from_this();
         }
 
-        std::shared_ptr<ObjectBuffer> ReadOnlySlice(int index, int length) override
+        std::shared_ptr<Buffer> ReadOnlySlice(int index, int length) override
         {
             LOG(">>>>")
             return std::make_shared<EventBuffer>(event_);
@@ -78,6 +81,11 @@ namespace omnistream
         int GetSize() const override
         {
             return currentSize;
+        }
+
+        int GetBufferType() override
+        {
+            return 0;
         }
 
         void SetSize(int writerIndex) override
@@ -125,18 +133,18 @@ namespace omnistream
             NOT_IMPL_EXCEPTION
         };
 
-        std::shared_ptr<ObjectBufferRecycler> GetRecycler() override
+        std::shared_ptr<BufferRecycler> GetRecycler() override
         {
             NOT_IMPL_EXCEPTION
         };
 
-        std::pair<uint8_t* , size_t>  GetBytes() override
+        std::pair<uint8_t*, size_t>  GetBytes() override
         {
             return std::make_pair(reinterpret_cast<uint8_t *>(&event_), sizeof(event_));
         };
 
     private:
-        std::shared_ptr<ObjectBufferRecycler> recycler =nullptr;
+        std::shared_ptr<ObjectBufferRecycler> recycler = nullptr;
         // DataType dataType;
         int currentSize = 1;
         bool isCompressed_;
@@ -146,4 +154,4 @@ namespace omnistream
 }
 
 
-#endif  //EVENTBUFFER_H
+#endif

@@ -1,6 +1,13 @@
-//
-// Created by root on 9/12/24.
-//
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *          http://license.coscl.org.cn/MulanPSL2
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ */
 
 #include "InternalSerializers.h"
 
@@ -11,14 +18,16 @@
 
 using namespace omniruntime::type;
 
-TypeSerializer *InternalSerializers::create(LogicalType* type) {
+TypeSerializer *InternalSerializers::create(LogicalType* type)
+{
     return createInternal(type);
 }
 
-TypeSerializer *InternalSerializers::createInternal(LogicalType* type) {
+TypeSerializer *InternalSerializers::createInternal(LogicalType* type)
+{
     switch (type->getTypeId()) {
         case DataTypeId::OMNI_CONTAINER:
-            return new RowDataSerializer(static_cast<RowType *>(type));
+            return new RowDataSerializer(static_cast<omnistream::RowType *>(type));
         case DataTypeId::OMNI_LONG:
             return LongSerializer::INSTANCE; // `LongSerializer` is currently dummy, we use `RowDataSerializer`'s `serialize` and `deserialize` for now
         case DataTypeId::OMNI_INT:

@@ -1,5 +1,5 @@
 /*
- * @Copyright: Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+ * @Copyright: Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
  * @Description: Type Info Factory for DataStream
  */
 #include <cstring>
@@ -18,12 +18,16 @@
 #include "table/typeutils/InternalTypeInfo.h"
 #include "VoidTypeInfo.h"
 #include "types/logical/VarCharType.h"
-#include "typeutils/TupleTypeInfo.h"
+#include "TupleTypeInfo.h"
+#include "core/typeinfo/PojoTypeInfo.h"
+#include "core/typeinfo/MapTypeInfo.h"
+#include "core/typeinfo/ListTypeInfo.h"
 #include "LongTypeInfo.h"
-#include "typeutils/CommittableMessageInfo.h"
+#include "CommittableMessageInfo.h"
+#include "PojoField.h"
 #include "TypeInfoFactory.h"
 
-TypeInformation *TypeInfoFactory::createTypeInfo(const char *name, const std::string config)
+TypeInformation *TypeInfoFactory::createTypeInfo(const char *name)
 {
     LOG("Beginning of  createTypeInfo: type_name_string  " << TYPE_NAME_STRING << "vname:" << name)
     // so far, only support String
@@ -34,7 +38,7 @@ TypeInformation *TypeInfoFactory::createTypeInfo(const char *name, const std::st
     } else if (strcmp (name, TYPE_NAME_LONG) == 0) {
         return new LongTypeInfo(name);
     } else {
-        THROW_LOGIC_EXCEPTION("Unsupported type " + std::string(name));
+        THROW_LOGIC_EXCEPTION("createTypeInfo: Unsupported type " + std::string(name));
     }
 }
 
@@ -96,7 +100,7 @@ TypeInformation *TypeInfoFactory::createInternalTypeInfo(const json &rowType)
         THROW_LOGIC_EXCEPTION("Row type is  not JSON Array:" + rowType.dump(2));
     }
 
-    std::vector<RowField> fields;
+    std::vector<omnistream::RowField> fields;
 
     // create RowType from json description
     // Iterate over each element of the array
@@ -144,16 +148,16 @@ TypeInformation *TypeInfoFactory::createInternalTypeInfo(const json &rowType)
                 THROW_LOGIC_EXCEPTION("Unknown logical type " + typeName);
         }
     }
-    RowType type(true, fields);
+    omnistream::RowType type(true, fields);
     auto typeInfo = InternalTypeInfo::ofRowType(&type);
     LOG(">>>> Return createInternalTypeInfo")
     return typeInfo;
 }
 
-RowType *TypeInfoFactory::createRowType(const std::vector<omniruntime::type::DataTypeId> *inputRowType)
+omnistream::RowType *TypeInfoFactory::createRowType(const std::vector<omniruntime::type::DataTypeId> *inputRowType)
 {
     //    auto *typeInfo = new std::vector<RowField>();
-    std::vector<RowField> typeInfo;
+    std::vector<omnistream::RowField> typeInfo;
     for (size_t i = 0; i < inputRowType->size(); ++i) {
         std::string columnName = "col" + std::to_string(i);
         BasicLogicalType *columnType;
@@ -186,10 +190,10 @@ RowType *TypeInfoFactory::createRowType(const std::vector<omniruntime::type::Dat
         typeInfo.emplace_back(columnName, columnType);
     }
 
-    return new RowType(true, typeInfo);
+    return new omnistream::RowType(true, typeInfo);
 }
 
-TypeInformation *TypeInfoFactory::createBasicInternalTypeInfo(const char *name, const std::string config)
+TypeInformation *TypeInfoFactory::createBasicInternalTypeInfo(const char *name)
 {
     THROW_LOGIC_EXCEPTION("to be decided later " + std::string(name));
 }
@@ -219,9 +223,47 @@ LogicalType *TypeInfoFactory::createLogicalType(const std::string type)
                 }
                 fieldTypes.push_back(fieldType);
             }
-            return new RowType(true, fieldTypes);
+            return new omnistream::RowType(true, fieldTypes);
         } catch (std::runtime_error &e) {
             THROW_LOGIC_EXCEPTION("Unknown logical type " + type);
         }
     }
+}
+
+TypeInformation *TypeInfoFactory::createDataStreamTypeInfo(const json &serializerInfo)
+{
+    std::string serializerName = serializerInfo["serializerName"];
+    TypeInformation* typeInformation = BasicTypeInfo::getBasicTypeInfo(serializerName);
+    if (typeInformation != nullptr) {
+        return typeInformation;
+    }
+    if (serializerName == TYPE_NAME_TUPLE_SERIALIZER) {
+        std::vector<TypeInformation*> types;
+        types.reserve(serializerInfo["fieldSerializers"].size());
+        for (const auto &item: serializerInfo["fieldSerializers"]) {
+            types.push_back(createDataStreamTypeInfo(item));
+        }
+        typeInformation = new TupleTypeInfo(types);
+    } else if (serializerName == TYPE_NAME_POJO_SERIALIZER) {
+        std::vector<PojoField*> pojoFields;
+        std::string clazz = serializerInfo["clazz"];
+        std::vector<std::string> fields = serializerInfo["fields"];
+        auto fieldSerializers = serializerInfo["fieldSerializers"];
+        pojoFields.reserve(fieldSerializers.size());
+        for (size_t i = 0; i < fieldSerializers.size(); i++) {
+            auto pojoField = new PojoField(fields[i], createDataStreamTypeInfo(fieldSerializers[i]));
+            pojoFields.push_back(pojoField);
+        }
+        typeInformation = new PojoTypeInfo(clazz, pojoFields);
+    } else if (serializerName == TYPE_NAME_MAP_SERIALIZER) {
+        auto keyTypeInfo = createDataStreamTypeInfo(serializerInfo["keySerializer"]);
+        auto valueTypeInfo = createDataStreamTypeInfo(serializerInfo["valueSerializer"]);
+        typeInformation = new MapTypeInfo(keyTypeInfo, valueTypeInfo);
+    } else if (serializerName == TYPE_NAME_LIST_SERIALIZER) {
+        auto elementTypeInfo = createDataStreamTypeInfo(serializerInfo["elementSerializer"]);
+        typeInformation = new ListTypeInfo(elementTypeInfo);
+    } else {
+        THROW_RUNTIME_ERROR("invalid serializerName " + serializerName)
+    }
+    return typeInformation;
 }

@@ -14,7 +14,6 @@ public class ResultPartitionIDPOJO {
     private ExecutionAttemptIDPOJO producerId;
 
     public ResultPartitionIDPOJO() {
-
     }
 
     public ResultPartitionIDPOJO(ResultPartitionID resultPartitionID) {

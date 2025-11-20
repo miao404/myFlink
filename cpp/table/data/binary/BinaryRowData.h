@@ -1,6 +1,16 @@
-//
-// Created by root on 9/5/24.
-//
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *          http://license.coscl.org.cn/MulanPSL2
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ */
+
+#ifndef BINARYROWDATA_H
+#define BINARYROWDATA_H
 
 #pragma once
 
@@ -13,18 +23,13 @@
 #include "BinarySegmentUtils.h"
 
 class BinaryRowData : public RowData, public BinarySection, public TypedSetters {
-
 public:
     explicit BinaryRowData(int arity);
     explicit BinaryRowData(int arity, int length);
-    // ~BinaryRowData() {
-    //     if (memoryBuffer != nullptr) {
-    //         delete[] memoryBuffer;
-    //     }
-    // }
-    virtual  ~BinaryRowData() override;
 
-    //virtual
+    ~BinaryRowData() override;
+
+    // virtual
     int getArity() override;
 
     void setRowKind(RowKind kind) override;
@@ -63,8 +68,10 @@ public:
     int getNumberOfBytesToNearestWord(int numBytes);
     void zeroOutPaddingBytes(int fieldOffset, int numBytes);
     void setOffsetAndSize(int headerOffset, int varcharOffset, int len);
+    void setDecimal128(int pos, uint64_t low, int64_t high);
+    omniruntime::type::Decimal128* getDecimal128(int pos, int precision);
 
-    //non virtual
+    // non virtual
     int getFixedLengthPartSize() const;
     void setSizeInBytes(int sizeInBytes);
 
@@ -73,23 +80,23 @@ public:
     int hashCode() const override;
     [[nodiscard]] int hashCodeFast() const override;
 
-    //static
+    // static
     static int calculateBitSetWidthInBytes(int arity);
     static const int HEADER_SIZE_IN_BITS = 8;
     static int calculateFixPartSizeInBytes(int arity);
 
     // assume all field are fixed length
-    static BinaryRowData * createBinaryRowDataWithMem(int arity);
-    static BinaryRowData * createRowFromSubJoinedRows(BinaryRowData * row1, BinaryRowData * row2 );
+    static BinaryRowData* createBinaryRowDataWithMem(int arity);
+    static BinaryRowData* createRowFromSubJoinedRows(BinaryRowData* row1, BinaryRowData* row2);
     // for debug
     void printSegInBinary() const;
 
-    int getNullBitsSizeInBytes() const {
+    int getNullBitsSizeInBytes() const
+    {
         return nullBitsSizeInBytes_;
     }
 
     RowData* copy() override;
-   
 
 private:
     int arity_;
@@ -97,14 +104,11 @@ private:
     int nullBitsSizeInBytes_;
     void setNotNullAt(int i);
     int getFieldOffset(int pos);
-
 };
 
-namespace std
-{
+namespace std {
     template<>
-    struct hash<BinaryRowData>
-    {
+    struct hash<BinaryRowData> {
         std::size_t operator()(const BinaryRowData& binaryRowData) const noexcept
         {
             return binaryRowData.hashCode();
@@ -113,3 +117,5 @@ namespace std
     
 }
 
+
+#endif

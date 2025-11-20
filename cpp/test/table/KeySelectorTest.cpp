@@ -1,10 +1,7 @@
-//
-// Created by xichen on 2/28/25.
-//
 #include <gtest/gtest.h>
-#include "table/vectorbatch/VectorBatch.h"
+#include "table/data/vectorbatch/VectorBatch.h"
 #include "table/data/binary/BinaryRowData.h"
-#include "table/KeySelector.h"
+#include "table/runtime/keyselector/KeySelector.h"
 #include <OmniOperatorJIT/core/test/util/test_util.h>
 
 

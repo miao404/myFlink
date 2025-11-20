@@ -1,7 +1,3 @@
-//
-// Created by q00649235 on 2025/4/2.
-//
-
 #include <gtest/gtest.h>
 #include "streaming/runtime/tasks/SystemProcessingTimeService.h"
 
@@ -21,8 +17,7 @@ TEST(SystemProcessingTimeServiceTest, DISABLED_SelectFromRow) {
     MockProcessingTimeCallback* callback = new MockProcessingTimeCallback();
     systemProcessingTimeService.scheduleWithFixedDelay(callback, 2000, 3000);
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(8000));
-
+    std::this_thread::sleep_for(std::chrono::milliseconds(7900));
     EXPECT_EQ(callback->timeVec.size(), 2);
     EXPECT_EQ(callback->timeVec[0], callback->timeVec[1] - 3000);
 }

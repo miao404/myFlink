@@ -23,7 +23,7 @@ target_compile_options(datagen  PRIVATE -fPIC)
 set_property(TARGET datagen PROPERTY POSITION_INDEPENDENT_CODE ON)
 target_link_directories(datagen PUBLIC "${OMNIRUNTIME_LIB_DIR}")
 target_link_libraries(datagen PUBLIC
-        securec
+        boundscheck
         ${ORT_VEC_SO}
 )
 
@@ -32,4 +32,10 @@ if (JEMALLOC_LIB)
         target_link_libraries(core PRIVATE ${JEMALLOC_LIB})
 endif()
 
+install(
+        TARGETS datagen
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
+        RUNTIME DESTINATION bin
+)
 

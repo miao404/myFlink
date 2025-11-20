@@ -1,9 +1,13 @@
 /*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *          http://license.coscl.org.cn/MulanPSL2
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
  */
-//
-// Created by s30031572 on 2024/12/26.
-//
 
 #ifndef OMNIFLINK_REDUCEFUNCTION_H
 #define OMNIFLINK_REDUCEFUNCTION_H
@@ -13,10 +17,11 @@
 template<typename T>
 class ReduceFunction {
 public:
+    virtual ~ReduceFunction() = default;
     virtual T* reduce(T* value1, T* value2) = 0;
 };
 
 template<typename T>
 using ReduceFunctionUnique = std::unique_ptr<ReduceFunction<T>>;
 
-#endif //OMNIFLINK_REDUCEFUNCTION_H
+#endif // OMNIFLINK_REDUCEFUNCTION_H

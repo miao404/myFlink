@@ -1,5 +1,12 @@
 /*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *          http://license.coscl.org.cn/MulanPSL2
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
  */
 
 #include <gtest/gtest.h>
@@ -9,7 +16,7 @@
 #include <nlohmann/json.hpp>
 #include "streaming/api/functions/sink/filesystem/StreamingFileWriter.h"
 #include "streaming/runtime/tasks/SystemProcessingTimeService.h"
-#include "runtime/taskmanager/RuntimeEnvironment.h"
+#include "runtime/taskmanager/OmniRuntimeEnvironment.h"
 #include "table/typeutils/RowDataSerializer.h"
 #include "OmniOperatorJIT/core/test/util/test_util.h"
 #include "OmniOperatorJIT/core/src/vector/vector_helper.h"
@@ -82,11 +89,15 @@ TEST(StreamingFileWriterTest, ProcessElement)
 {
     std::string pathDir = prepareTestDirectory();
 
-    std::vector<RowField> typeInfo{
-        RowField("col0", BasicLogicalType::BIGINT),
-        RowField("col1", BasicLogicalType::BIGINT)};
-    TypeSerializer *ser = new RowDataSerializer(new RowType(false, typeInfo));
-    auto *initializer = new StreamTaskStateInitializerImpl(new RuntimeEnvironment(new TaskInfoImpl("test", 1, 1, 0)));
+    std::vector<omnistream::RowField> typeInfo{
+        omnistream::RowField("col0", BasicLogicalType::BIGINT),
+        omnistream::RowField("col1", BasicLogicalType::BIGINT)};
+    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, typeInfo));
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    auto *initializer = new StreamTaskStateInitializerImpl(env2);
 
     std::vector<std::string> partitionKeys = {"dt", "hm"};
     std::vector<int> partitionIndexes = {5, 6};
@@ -157,11 +168,15 @@ TEST(StreamingFileWriterTest, RollingPolicyFileSize)
 {
     std::string pathDir = prepareTestDirectory();
 
-    std::vector<RowField> typeInfo{
-        RowField("col0", BasicLogicalType::BIGINT),
-        RowField("col1", BasicLogicalType::BIGINT)};
-    TypeSerializer *ser = new RowDataSerializer(new RowType(false, typeInfo));
-    auto *initializer = new StreamTaskStateInitializerImpl(new RuntimeEnvironment(new TaskInfoImpl("test", 1, 1, 0)));
+    std::vector<omnistream::RowField> typeInfo{
+        omnistream::RowField("col0", BasicLogicalType::BIGINT),
+        omnistream::RowField("col1", BasicLogicalType::BIGINT)};
+    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, typeInfo));
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    auto *initializer = new StreamTaskStateInitializerImpl(env2);
 
     int fileSize = 100;
     std::vector<std::string> partitionKeys = {"dt", "hm"};
@@ -231,11 +246,15 @@ TEST(StreamingFileWriterTest, DISABLED_RollingPolicyTimeInterval)
 {
     std::string pathDir = prepareTestDirectory();
 
-    std::vector<RowField> typeInfo{
-        RowField("col0", BasicLogicalType::BIGINT),
-        RowField("col1", BasicLogicalType::BIGINT)};
-    TypeSerializer *ser = new RowDataSerializer(new RowType(false, typeInfo));
-    auto *initializer = new StreamTaskStateInitializerImpl(new RuntimeEnvironment(new TaskInfoImpl("test", 1, 1, 0)));
+    std::vector<omnistream::RowField> typeInfo{
+        omnistream::RowField("col0", BasicLogicalType::BIGINT),
+        omnistream::RowField("col1", BasicLogicalType::BIGINT)};
+    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, typeInfo));
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    auto *initializer = new StreamTaskStateInitializerImpl(env2);
 
     int rollingTimeInterval = 10; // 10ms, should be short enought to produce at least 2 files.
     int bucketCheckInterval = 100;
@@ -307,11 +326,15 @@ TEST(StreamingFileWriterTest, Q10)
 {
     std::string pathDir = prepareTestDirectory();
     fileSinkDesc["path"] = pathDir;
-    std::vector<RowField> typeInfo{
-        RowField("col0", BasicLogicalType::BIGINT),
-        RowField("col1", BasicLogicalType::BIGINT)};
-    TypeSerializer *ser = new RowDataSerializer(new RowType(false, typeInfo));
-    auto *initializer = new StreamTaskStateInitializerImpl(new RuntimeEnvironment(new TaskInfoImpl("test", 1, 1, 0)));
+    std::vector<omnistream::RowField> typeInfo{
+        omnistream::RowField("col0", BasicLogicalType::BIGINT),
+        omnistream::RowField("col1", BasicLogicalType::BIGINT)};
+    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, typeInfo));
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    auto *initializer = new StreamTaskStateInitializerImpl(env2);
 
     std::vector<std::string> partitionKeys = fileSinkDesc["partitionKeys"].get<std::vector<std::string>>();
     auto *bucketsBuilder = new BulkFormatBuilder<omnistream::VectorBatch *, std::string>(fileSinkDesc);

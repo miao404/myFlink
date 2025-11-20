@@ -19,6 +19,9 @@ import java.util.Objects;
  */
 
 public class NonChainedOutputPOJO {
+
+    private boolean supportsUnalignedCheckpoints;
+
     /**
      * ID of the producer {@link StreamNode}.
      */
@@ -65,7 +68,8 @@ public class NonChainedOutputPOJO {
     public NonChainedOutputPOJO() {
     }
 
-    public NonChainedOutputPOJO(int sourceNodeId,
+    public NonChainedOutputPOJO(boolean supportsUnalignedCheckpoints,
+                                int sourceNodeId,
                                 int consumerParallelism,
                                 int consumerMaxParallelism,
                                 long bufferTimeout,
@@ -73,6 +77,7 @@ public class NonChainedOutputPOJO {
                                 boolean isPersistentDataSet,
                                 StreamPartitionerPOJO partitioner,
                                 int partitionType) {
+        this.supportsUnalignedCheckpoints = supportsUnalignedCheckpoints;
         this.sourceNodeId = sourceNodeId;
         this.consumerParallelism = consumerParallelism;
         this.consumerMaxParallelism = consumerMaxParallelism;
@@ -84,6 +89,7 @@ public class NonChainedOutputPOJO {
     }
 
     public NonChainedOutputPOJO(NonChainedOutput nonChainedOutput) {
+        this.supportsUnalignedCheckpoints = nonChainedOutput.supportsUnalignedCheckpoints();
         this.sourceNodeId = nonChainedOutput.getSourceNodeId();
         this.consumerParallelism = nonChainedOutput.getConsumerParallelism();
         this.consumerMaxParallelism = nonChainedOutput.getConsumerMaxParallelism();
@@ -91,6 +97,10 @@ public class NonChainedOutputPOJO {
         this.dataSetId = new IntermediateDataSetIDPOJO(nonChainedOutput.getDataSetId());
         this.partitioner = new StreamPartitionerPOJO(nonChainedOutput.getPartitioner());
         this.partitionType = ResultPartitionTypeConverter.encode(nonChainedOutput.getPartitionType());
+    }
+
+    public boolean getSupportsUnalignedCheckpoints() {
+        return supportsUnalignedCheckpoints;
     }
 
     public int getSourceNodeId() {
@@ -137,10 +147,6 @@ public class NonChainedOutputPOJO {
         return isPersistentDataSet;
     }
 
-    public void setIsPersistentDataSet(boolean isPersistentDataSet) {
-        isPersistentDataSet = isPersistentDataSet;
-    }
-
     public StreamPartitionerPOJO getPartitioner() {
         return partitioner;
     }
@@ -157,14 +163,18 @@ public class NonChainedOutputPOJO {
         this.partitionType = partitionType;
     }
 
-
     @Override
     public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
         checkState(o instanceof NonChainedOutputPOJO);
         NonChainedOutputPOJO that = (NonChainedOutputPOJO) o;
-        return sourceNodeId == that.sourceNodeId
+        return supportsUnalignedCheckpoints == that.supportsUnalignedCheckpoints
+                && sourceNodeId == that.sourceNodeId
                 && consumerParallelism == that.consumerParallelism
                 && consumerMaxParallelism == that.consumerMaxParallelism
                 && bufferTimeout == that.bufferTimeout
@@ -177,6 +187,7 @@ public class NonChainedOutputPOJO {
     @Override
     public int hashCode() {
         return Objects.hash(
+                supportsUnalignedCheckpoints,
                 sourceNodeId,
                 consumerParallelism,
                 consumerMaxParallelism,
@@ -190,7 +201,8 @@ public class NonChainedOutputPOJO {
     @Override
     public String toString() {
         return "NonChainedOutputPOJO{"
-                + "sourceNodeId=" + sourceNodeId
+                + "supportsUnalignedCheckpoints=" + supportsUnalignedCheckpoints
+                + ", sourceNodeId=" + sourceNodeId
                 + ", consumerParallelism=" + consumerParallelism
                 + ", consumerMaxParallelism=" + consumerMaxParallelism
                 + ", bufferTimeout=" + bufferTimeout

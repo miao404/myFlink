@@ -1,11 +1,14 @@
 /*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *          http://license.coscl.org.cn/MulanPSL2
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
  */
-//
-// Created by root on 2/8/25.
-//
 
-// ShuffleEnvironment.h
 #ifndef SHUFFLEENVIRONMENT_H
 #define SHUFFLEENVIRONMENT_H
 
@@ -19,17 +22,15 @@
 #include <executiongraph/descriptor/PartitionInfoPOD.h>
 #include <executiongraph/descriptor/ResultPartitionDeploymentDescriptorPOD.h>
 #include <executiongraph/descriptor/ResultPartitionIDPOD.h>
-#include <metrics/MetricGroup.h>
+#include <streaming/runtime/metrics/MetricGroup.h>
 #include <partition/ResultPartitionWriter.h>
 #include <partition/consumer/IndexedInputGate.h>
 #include <partition/PartitionProducerStateProvider.h>
 
 #include "ShuffleIOOwnerContextPOD.h"
 
-namespace omnistream
-{
-    class ShuffleEnvironment
-    {
+namespace omnistream {
+    class ShuffleEnvironment {
     public:
         virtual ~ShuffleEnvironment() = default;
 
@@ -43,7 +44,8 @@ namespace omnistream
         virtual std::vector<std::shared_ptr<ResultPartitionWriter>> createResultPartitionWriters(
             ShuffleIOOwnerContextPOD ownerContext,
             const std::vector<ResultPartitionDeploymentDescriptorPOD>&
-            resultPartitionDeploymentDescriptors) = 0;
+            resultPartitionDeploymentDescriptors,
+            int taskType) = 0;
 
         virtual void releasePartitionsLocally(const std::set<ResultPartitionIDPOD>& partitionIds) = 0;
 
@@ -52,7 +54,8 @@ namespace omnistream
         virtual std::vector<std::shared_ptr<SingleInputGate>> createInputGates(
             ShuffleIOOwnerContextPOD ownerContext,
             std::shared_ptr<PartitionProducerStateProvider> partitionProducerStateProvider,
-            const std::vector<InputGateDeploymentDescriptorPOD>& inputGateDeploymentDescriptors) = 0;
+            const std::vector<InputGateDeploymentDescriptorPOD>& inputGateDeploymentDescriptors,
+            int taskType) = 0;
 
         virtual bool updatePartitionInfo(ExecutionAttemptIDPOD consumerID,
                                          PartitionInfoPOD partitionInfo) = 0;

@@ -1,13 +1,9 @@
-//
-// Created by xichen on 2/5/25.
-//
 #include <gtest/gtest.h>
 #include <vector>
 #include <nlohmann/json.hpp>
 #include "streaming/api/operators/ProcessOperator.h"
 #include "table/runtime/operators/join/lookup/LookupJoinRunner.h"
-#include "core/operators/TimestampedCollector.h"
-#include "runtime/taskmanager/RuntimeEnvironment.h"
+#include "streaming/api/operators/TimestampedCollector.h"
 #include "test/core/operators/OutputTest.h"
 #include "OmniOperatorJIT/core/test/util/test_util.h"
 

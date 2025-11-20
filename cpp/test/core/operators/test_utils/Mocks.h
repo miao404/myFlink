@@ -1,14 +1,10 @@
-//
-// Created by root on 4/11/25.
-//
-
 #ifndef FLINK_TNEL_MOCKS_H
 #define FLINK_TNEL_MOCKS_H
 
-#include "core/operators/StreamMap.h"
+#include "streaming/api/operators/StreamMap.h"
 #include "functions/MapFunction.h"
-#include "streamrecord/StreamRecord.h"
-#include "task/WatermarkGaugeExposingOutput.h"
+#include "streaming/runtime/streamrecord/StreamRecord.h"
+#include "streaming/runtime/tasks/WatermarkGaugeExposingOutput.h"
 #include <librdkafka/rdkafkacpp.h>
 
 class MockObject : public Object {

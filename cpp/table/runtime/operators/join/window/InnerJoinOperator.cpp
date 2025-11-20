@@ -1,5 +1,5 @@
-//
-// Created by CHT on 2025/7/19.
-//
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2023-2024. All rights reserved.
+ */
 
 #include "InnerJoinOperator.h"

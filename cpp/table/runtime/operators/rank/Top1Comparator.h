@@ -9,8 +9,8 @@
 #include <queue>
 #include <unordered_map>
 #include <cassert>
-#include "vectorbatch/VectorBatch.h"
-#include "table/KeySelector.h"
+#include "table/data/vectorbatch/VectorBatch.h"
+#include "table/runtime/keyselector/KeySelector.h"
 
 using namespace omnistream;
 
@@ -35,14 +35,14 @@ public:
         ASSERT(!ascending_.empty());
         ASSERT(vectorBatch_ != nullptr);
         ASSERT(other.vectorBatch_ != nullptr);
-    
+
         for (size_t i = 0; i < columnIds_.size(); ++i) {
             int colId = columnIds_[i];
-    
+
             DataTypeId dataTypeId = vectorBatch_->Get(colId)->GetTypeId();
             int64_t a = 0;
             int64_t b = 0;
-    
+
             // Cast the vector and access the value for the current row.
             switch (dataTypeId) {
                 case DataTypeId::OMNI_INT: {
@@ -72,9 +72,9 @@ public:
                 default:
                     throw std::runtime_error("Unsupported DataTypeId for column comparison.");
             }
-    
+
             if (a != b) {
-                return ascending_[i] ? a > b : a < b;
+                return ascending_[i] ? a < b : a > b;
             }
         }
         return false; // All keys are equal.
@@ -117,7 +117,7 @@ public:
         ASSERT(vectorBatch != nullptr);
         // Extract the top-1 row ID for each partition key.
         std::unordered_map<K, int> top1RowIds;
-    
+
         if (vectorBatch->GetVectorCount() == 0) {
             return top1RowIds;
         }
@@ -125,21 +125,71 @@ public:
         // Map to store heaps for each partition key.
         std::unordered_map<K, std::priority_queue<CompositeKeyRef, std::vector<CompositeKeyRef>,
                                                                                 CompositeKeyComparator>> partitionHeaps;
-    
+
         size_t rowCount = vectorBatch->GetRowCount();
-    
+
         // Populate the heaps.
         for (size_t rowId = 0; rowId < rowCount; ++rowId) {
             // Use keySelector to get key
             K key = keySelector_.getKey(vectorBatch, static_cast<int>(rowId));
             CompositeKeyRef keyRef(sortColumnIds_, ascending_, static_cast<int>(rowId), vectorBatch);
-            partitionHeaps[key].push(keyRef);
+            auto it = partitionHeaps.find(key);
+            if (it != partitionHeaps.end()) {
+                it->second.push(keyRef);
+                if constexpr (std::is_same<K, RowData *>::value) {
+                    delete key;
+                }
+            } else {
+                partitionHeaps[key].push(keyRef);
+            }
         }
-    
+
         for (auto& [k, heap] : partitionHeaps) {
             top1RowIds[k] = heap.top().getRowId();
         }
-    
+
+        return top1RowIds;
+    }
+
+    std::unordered_map<K, int> findTop1RowIdsByPartitionV2(omnistream::VectorBatch* vectorBatch)
+    {
+        LOG("findTop1RowIdsByPartition is called.");
+        ASSERT(vectorBatch != nullptr);
+        // Extract the top-1 row ID for each partition key.
+        std::unordered_map<K, int> top1RowIds;
+
+        if (vectorBatch->GetVectorCount() == 0) {
+            return top1RowIds;
+        }
+
+        // Map to store heaps for each partition key.
+        std::unordered_map<K, CompositeKeyRef> partitionHeaps;
+
+        size_t rowCount = vectorBatch->GetRowCount();
+
+        // Populate the heaps.
+        for (size_t rowId = 0; rowId < rowCount; ++rowId) {
+            // Use keySelector to get key
+            K key = keySelector_.getKey(vectorBatch, static_cast<int>(rowId));
+            CompositeKeyRef keyRef(sortColumnIds_, ascending_, static_cast<int>(rowId), vectorBatch);
+            auto it = partitionHeaps.find(key);
+            if (it != partitionHeaps.end()) {
+                if (keyRef < it->second)
+                {
+                    it->second = keyRef;
+                }
+                if constexpr (std::is_same<K, RowData *>::value) {
+                    delete key;
+                }
+            } else {
+                partitionHeaps.emplace(key, keyRef);
+            }
+        }
+
+        for (auto& [k, heap] : partitionHeaps) {
+            top1RowIds[k] = heap.getRowId();
+        }
+
         return top1RowIds;
     }
 
