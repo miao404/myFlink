@@ -1,8 +1,0 @@
-{
-    "jobId": {
-        "upperPart": 3539979452829069826,
-        "lowerPart": -3417318983790149099
-    },
-    "jobName": "collect",
-    "autoWatermarkInterval" : 1000
-}
