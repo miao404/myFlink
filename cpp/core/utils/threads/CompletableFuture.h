@@ -1,0 +1,120 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *          http://license.coscl.org.cn/MulanPSL2
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
+ */
+#pragma once
+
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#include <vector>
+#include <chrono>
+#include <memory>
+#include <exception>
+
+namespace omnistream {
+
+// Forward declaration
+class CompletableFuture;
+
+// Runnable interface that all tasks must implement
+class Runnable {
+public:
+    virtual ~Runnable() = default;
+    virtual void run() = 0;
+};
+
+// Task wrapper for internal scheduling
+    // for extension such as logging
+class Task : public Runnable {
+public:
+    explicit Task(std::shared_ptr<Runnable> runnable) : target(std::move(runnable)) {}
+
+    void run() override
+    {
+        if (target) {
+            target->run();
+        }
+    }
+private:
+    std::shared_ptr<Runnable> target;
+};
+
+enum class FutureState {
+    NOT_STARTED,
+    RUNNING,
+    COMPLETED,
+    FAILED,
+    CANCELLED
+};
+
+class CompletableFuture : public std::enable_shared_from_this<CompletableFuture> {
+public:
+    CompletableFuture();
+    CompletableFuture(bool done);
+    ~CompletableFuture();
+
+    // Prevent copying
+    CompletableFuture(const CompletableFuture&) = delete;
+    CompletableFuture& operator=(const CompletableFuture&) = delete;
+
+    // Allow moving
+    CompletableFuture(CompletableFuture&&) noexcept;
+    CompletableFuture& operator=(CompletableFuture&&) noexcept;
+
+    // Submit a task to run synchronously
+    void runAs(std::shared_ptr<Runnable> task);
+
+    // Run a task asynchronously and return a new CompletableFuture
+    static std::shared_ptr<CompletableFuture> runAsync(std::shared_ptr<Runnable> task);
+
+    // Chain a task to run after this one completes
+    std::shared_ptr<CompletableFuture> thenRun(std::shared_ptr<Runnable> task);
+
+    // Check the current state
+    FutureState getState() ;
+
+    // Wait for completion and get the result
+    void get();
+
+    // Wait for completion with timeout
+    bool get(long timeoutMillis);
+
+    // Static methods for combining futures
+    static std::shared_ptr<CompletableFuture> allOf(const std::vector<std::shared_ptr<CompletableFuture>>& futures);
+    static std::shared_ptr<CompletableFuture> anyOf(const std::vector<std::shared_ptr<CompletableFuture>>& futures);
+
+    // Cancel the task
+    bool cancel();
+
+    // Check if task is done
+    bool isDone() const;
+
+    // Check if task was cancelled
+    bool isCancelled() ;
+
+    void setCompleted() ;
+
+    std::string toString() const;
+    void complete();
+
+private:
+    FutureState state;
+    std::atomic<bool> done;
+    std::exception_ptr exception;
+    std::mutex mtx;
+    std::condition_variable cv;
+    std::thread worker;
+    std::shared_ptr<CompletableFuture> self;
+
+    static void executeTask(std::shared_ptr<CompletableFuture> future, std::shared_ptr<Runnable> task);
+};
+
+} // namespace omnistream
