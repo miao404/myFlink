@@ -89,10 +89,10 @@ void PipelinedSubpartition::release()
 
 BufferAndBacklog* PipelinedSubpartition::pollBuffer()
 {
-    std::lock_guard<std::mutex> lock(buffersMutex);
+    std::lock_guard<std::mutex> buffersLock(buffersMutex);
     LOG(">>>>>>buffers.peek() is " << buffers.peek() << " buffers.size()" << buffers.size() << " buffers address" << &buffers);
     // When blocked by an aligned checkpoint barrier, priority events (e.g., timeout->UC) must still overtake.
-    if (isBlocked && buffers.getNumPriorityElements() == 0) {
+    if (isBlocked) {
         return nullptr;
     }
 
@@ -159,19 +159,18 @@ BufferAndBacklog* PipelinedSubpartition::pollBuffer()
     }
 
     if (buffer->GetDataType().isBlockingUpstream()) {
+        LOG("PipelinedSubpartition is blocked when pollBuffer, event data type: " << buffer->GetDataType().toString() <<
+            ", subpartitionInfo: " << this->subpartitionInfo.toString())
         isBlocked = true;
     }
 
     if (buffer->isBuffer()) {
         auto bufferandlog = new BufferAndBacklog(
             buffer, getBuffersInBacklogUnsafe(), ObjectBufferDataType::DATA_BUFFER, sequenceNumber++);
-
-        LOG_TRACE(" BufferAndBacklog  created and before return")
-        return  bufferandlog;
+        return bufferandlog;
     } else {
-        int eventType = buffer->EventType();
-        LOG_TRACE(" BufferAndBacklog  is event " << std::to_string(eventType))
-        INFO_RELEASE("BufferAndBacklog has an event: eventType= " << eventType << " task  :" << parent->getOwningTaskName()  << " partition:  " <<  subpartitionInfo.toString());
+        LOG("PipelinedSubpartition has an event when pollBuffer, event data type: " << buffer->GetDataType().toString() <<
+            ", parentTask: " << parent->getOwningTaskName() << ", subpartitionInfo: " << this->subpartitionInfo.toString())
         auto bufferandlog = new BufferAndBacklog(
            buffer, getBuffersInBacklogUnsafe(), ObjectBufferDataType::EVENT_BUFFER, sequenceNumber++);
         return bufferandlog;

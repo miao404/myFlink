@@ -282,6 +282,28 @@ namespace omnistream {
     private:
         std::shared_ptr<OmniStreamTask> task_;
     };
+
+    class ResumeWrapper : public Runnable {
+    public:
+        ResumeWrapper(std::shared_ptr<MailboxDefaultAction::Suspension> suspendedDefaultAction, std::shared_ptr<PeriodTimer> timer)
+            : suspendedDefaultAction(std::move(suspendedDefaultAction)), timer(std::move(timer)) {
+            if (timer != nullptr) {
+                timer->markStart();
+            }
+        }
+
+        void run() override
+        {
+            if (timer != nullptr) {
+                timer->markEnd();
+            }
+            suspendedDefaultAction->resume();
+        }
+    private:
+        std::shared_ptr<MailboxDefaultAction::Suspension> suspendedDefaultAction;
+        std::shared_ptr<PeriodTimer> timer;
+
+    };
 }
 
 

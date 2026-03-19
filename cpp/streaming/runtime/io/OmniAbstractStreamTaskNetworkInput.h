@@ -234,7 +234,6 @@ public:
                     processBufferForDataStreamAndSQLFromOriginal(bufferOrEvent);
                     delete bufferOrEvent;
                 } else  {
-                    std::cout << "current is event" << std::endl;
                     std::shared_ptr<AbstractEvent> event = bufferOrEvent->getEvent();
                     DataInputStatus status = processEvent(event);
                     delete bufferOrEvent;
@@ -268,7 +267,6 @@ public:
                     processBufferForDataStreamAndSQLFromOriginal(bufferOrEvent);
                     delete bufferOrEvent;
                 } else  {
-                    std::cout << "current is event" << std::endl;
                     std::shared_ptr<AbstractEvent> event = bufferOrEvent->getEvent();
                     DataInputStatus status = processEvent(event, output);
                     delete bufferOrEvent;
@@ -519,11 +517,17 @@ public:
         for (const auto &pair : *recordDeserializers) {
             std::vector<InputChannelInfo> channelInfofos = inputGate->GetChannelInfos(); 
             try {
-                writer->AddInputData(
-                    checkpointId,
-                    channelInfofos[pair.first],
-                    ChannelStateWriter::sequenceNumberUnknown,
-                    (pair.second)->GetUnconsumedBuffer());
+                std::vector<omnistream::Buffer*> buffers = (pair.second)->GetUnconsumedBuffer();
+                int bufferSize = buffers.size();
+                if (bufferSize > 0) {
+                    writer->AddInputData(
+                        checkpointId,
+                        channelInfofos[pair.first],
+                        ChannelStateWriter::sequenceNumberUnknown,
+                        buffers);
+                } else {
+                    LOG_DEBUG(" PrepareSnapshot buffers is null ");
+                }
             } catch (const std::exception& e) {
                 throw std::runtime_error("Error: " + std::string(e.what()));
             }

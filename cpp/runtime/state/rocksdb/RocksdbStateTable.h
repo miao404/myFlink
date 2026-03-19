@@ -40,7 +40,7 @@
 #include "../../../core/utils/MathUtils.h"
 #include "state/RocksDbKvStateInfo.h"
 
-//const int FALCON_PREFIX_PARAM = 13;
+const int FALCON_HASH_PARAM = 13;
 
 /* S is the value used in the State,
  * like RowData* for HeapValueState,
@@ -73,10 +73,13 @@ public:
         ROCKSDB_NAMESPACE::ColumnFamilyOptions familyOptions(options);
 
         // [FALCON] -----------------------------------------------------------------------------------------------
-        // familyOptions.memtable_factory.reset(ROCKSDB_NAMESPACE::NewHashLinkListRepFactory());
-        // familyOptions.prefix_extractor.reset(ROCKSDB_NAMESPACE::NewCappedPrefixTransform(FALCON_PREFIX_PARAM));
-        // familyOptions.compression = ROCKSDB_NAMESPACE::CompressionType::kZlibCompression;
-        // INFO_RELEASE("[FALCON] enable zlib for valueState.")
+        if (metaInfo->getStateType() == StateDescriptor::Type::VALUE) {
+			// modify columnFamily option and read option for current columnFamily
+            familyOptions.memtable_factory.reset(ROCKSDB_NAMESPACE::NewHashLinkListRepFactory());
+            familyOptions.prefix_extractor.reset(ROCKSDB_NAMESPACE::NewCappedPrefixTransform(FALCON_HASH_PARAM));
+			readOptions.total_order_seek = true;
+            INFO_RELEASE("[FALCON] enable hash memTable for valueState.")
+        }
         // [FALCON] -----------------------------------------------------------------------------------------------
 
         DefaultConfigurableOptionsFactory::createColumnOptions(familyOptions);
@@ -147,6 +150,9 @@ public:
 
         std::string valueInTable;
         ROCKSDB_NAMESPACE::Status s = rocksDb->Get(readOptions, table, sliceKey, &valueInTable);
+        if (!s.ok() && valueInTable.length() != 0) {
+            THROW_RUNTIME_ERROR("rocksdb state table get failed, status is << " << s.ToString());
+        }
         if (!s.ok() || valueInTable.length() == 0) {
             if constexpr (std::is_pointer_v<S>) {
                 return nullptr;
@@ -217,7 +223,8 @@ public:
         }
         auto s3 = rocksDb->Write(writeOptions, &putBatch);
 
-        if (s3.ok()) {
+        if (!s3.ok()) {
+            THROW_RUNTIME_ERROR("rocksdb state table put by batch failed, status is << " << s3.ToString());
         }
     };
 
@@ -247,7 +254,8 @@ public:
         ROCKSDB_NAMESPACE::Slice sliceValue(reinterpret_cast<const char *>(valueOutputSerializer.getData()),
                                             valueOutputSerializer.length());
         auto s3 = rocksDb->Put(writeOptions, table, sliceKey, sliceValue);
-        if (s3.ok()) {
+        if (!s3.ok()) {
+            THROW_RUNTIME_ERROR("rocksdb state table put failed, status is << " << s3.ToString());
         }
     };
 

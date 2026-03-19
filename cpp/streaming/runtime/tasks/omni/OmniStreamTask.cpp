@@ -297,18 +297,24 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
             EndData(StopMode::NO_DRAIN);
             return;
         case DataInputStatus::END_OF_INPUT:
-            // todo:
-             mailboxProcessor_->suspend();
-             return;
+            controller->suspendDefaultAction();
+            mailboxProcessor_->suspend();
+            return;
     }
     std::shared_ptr<CompletableFuture> resumeFuture;
+    // if (!recordWriter_->isAvailable()) {
+    //     resumeFuture = recordWriter_->GetAvailableFuture();
+    //     INFO_RELEASE("recordWriter is not available, wait for it")
+    // } else
     if (!inputProcessor_->isAvailable()) {
         resumeFuture = inputProcessor_->GetAvailableFuture();
+        LOG("inputProcessor is not available, wait for it")
     } else {
         return;
-    };
-    // thread wait
-    resumeFuture->get();
+    }
+
+    // todo: the timer is not implemented yet, to measure the idle time
+    resumeFuture->thenRun(std::make_shared<ResumeWrapper>(controller->suspendDefaultAction(nullptr), nullptr));
 }
 
     const std::string OmniStreamTask::getName() const
@@ -391,15 +397,6 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
             }
 
             auto bufferPartitionWriter = env_->writers()[outputIndex];
-            // we initialize the partitioner here with the number of key groups (aka max. parallelism)
-            if (typeid(*outputPartitioner) == typeid(datastream::KeyGroupStreamPartitioner<StreamRecord, BinaryRowData*>)) {
-                int numKeyGroups = bufferPartitionWriter->getNumTargetKeyGroups();
-                if (0 < numKeyGroups) {
-                    reinterpret_cast<datastream::KeyGroupStreamPartitioner<StreamRecord, BinaryRowData*> *>(outputPartitioner)
-                        ->configure(numKeyGroups);
-                }
-            }
-
             auto writer = RecordWriterBuilderV2()
                               .withChannelSelector(outputPartitioner)
                               .withWriter(bufferPartitionWriter)
@@ -455,7 +452,8 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
             std::unordered_map<int, StreamConfigPOD> configMap = env_->taskConfiguration().getChainedConfigMap();
             auto description = configMap[sourceId].getOperatorDescription().getDescription();
             nlohmann::json config = nlohmann::json::parse(description);
-            return new datastream::KeyGroupStreamPartitioner<IOReadableWritable, Object>(config, targetId, 128);
+            int32_t maxParallelism = env_->taskConfiguration().getMaxNumberOfSubtasks();
+            return new datastream::KeyGroupStreamPartitioner<IOReadableWritable, Object>(config, targetId, maxParallelism);
         } else if (partitioner.getPartitionerName() == StreamPartitionerPOD::NONE) {
             throw std::invalid_argument("Invalid partitioner!");
         } else {
