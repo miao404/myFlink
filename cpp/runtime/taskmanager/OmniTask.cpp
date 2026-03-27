@@ -258,9 +258,11 @@ namespace omnistream {
 
         LOG_INFO_IMP("Invokable Invoke")
         this->invokable_->cleanup();
+        this->ReleaseResources();
+        originalNetworkBufferRecycler_->stop();
 
-        // sleep for a while
-        // std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        this->invokable_.reset();
+        delete this;
     }
 
     void OmniTask::DoRunInvoke(long streamTaskAddress)
@@ -602,17 +604,21 @@ namespace omnistream {
         std::chrono::system_clock::now().time_since_epoch().count());
         if (executionState == ExecutionState::RUNNING) {
             if (checkpointableTask == nullptr) {
+                delete checkpointMetaData;
                 throw std::runtime_error("invokable is not checkpointable");
             }
             try {
                 checkpointableTask->triggerCheckpointAsync(checkpointMetaData, checkpoint_options);
                 // TTODO
             } catch (const OmniException& ex) {
+                delete checkpointMetaData;
                 this->declineCheckpoint(checkpointid, CheckpointFailureReason::CHECKPOINT_DECLINED_TASK_CLOSING);
             } catch (const std::exception& t) {
+                delete checkpointMetaData;
                 // TTODO
             }
         } else {
+            delete checkpointMetaData;
             this->declineCheckpoint(checkpointid, CheckpointFailureReason::CHECKPOINT_DECLINED_TASK_NOT_READY);
         }
     }

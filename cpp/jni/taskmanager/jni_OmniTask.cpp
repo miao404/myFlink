@@ -128,6 +128,7 @@ JNIEXPORT void JNICALL Java_com_huawei_omniruntime_flink_runtime_taskmanager_Omn
     jniEnv->ReleaseStringUTFChars(checkpointoptionJson, checkpointStr);
     CheckpointOptions *configuredOptions = CheckpointOptions::FromJson(checkpointoptionJsonStr);
     CheckpointOptions *runtimeOptions = configuredOptions->ToRuntimeAlignedNoTimeout();
+    delete configuredOptions;
     task->triggerCheckpointBarrier(checkpointID, checkpointTimestamp, runtimeOptions);
 }
 
