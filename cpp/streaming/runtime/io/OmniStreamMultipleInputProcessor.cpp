@@ -11,6 +11,14 @@
 
 #include "OmniStreamMultipleInputProcessor.h"
 namespace omnistream {
+    OmniStreamMultipleInputProcessor::~OmniStreamMultipleInputProcessor() {
+        for (auto processor : processors) {
+            if (processor != nullptr) {
+                delete processor;
+                processor = nullptr;
+            }
+        }
+    }
     DataInputStatus OmniStreamMultipleInputProcessor::processInput()
     {
         int readingInputIndex;
@@ -29,6 +37,16 @@ namespace omnistream {
         LOG("OmniStreamMultipleInputProcessor processInput reading index = " << readingInputIndex)
         DataInputStatus dataInputStatus = processors[readingInputIndex]->processInput();
         DataInputStatus status = inputSelectionHandler->updateStatusAndSelection(dataInputStatus, readingInputIndex);
+        if (status == DataInputStatus::END_OF_RECOVERY) {
+            suspendNum--;
+            if (UNLIKELY(suspendNum < 0)) {
+                LOG("Error: suspendNum should more than zero.")
+                throw std::runtime_error("Error: suspendNum should more than zero.");
+            }
+            if (suspendNum != 0) {
+                return DataInputStatus::MORE_AVAILABLE;
+            }
+        }
         return status;
     }
 
@@ -116,4 +134,11 @@ namespace omnistream {
         return availabilityHelper->getAvailableFuture();
     }
 
+    void OmniStreamMultipleInputProcessor::close() {
+        for (auto processor : processors) {
+            if (processor != nullptr) {
+                processor->close();
+            }
+        }
+    }
 }

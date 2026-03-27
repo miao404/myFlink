@@ -17,11 +17,22 @@ namespace omnistream {
         : input(input), output(output), endOfInputAware(operatorChain) {
     }
 
+    OmniStreamOneInputProcessor::~OmniStreamOneInputProcessor() {
+        if (input != nullptr) {
+            delete input;
+            input = nullptr;
+        }
+        if (output != nullptr) {
+            delete output;
+            output = nullptr;
+        }
+    }
+
     DataInputStatus OmniStreamOneInputProcessor::processInput()
     {
         // LOG(">>>process Input")
         DataInputStatus status = input->emitNext(output);
-        // LOG_TRACE(" Return status  "  << DataInputStatusHelper::mapToInt(status))
+        LOG_TRACE("emitNext return status: "  << DataInputStatusHelper::mapToInt(status))
         return status;
     }
 
@@ -44,8 +55,11 @@ namespace omnistream {
 
     void OmniStreamOneInputProcessor::close()
     {
-        input->close();
-        output->close();
+        if (input != nullptr) {
+            input->close();
+        }
+        if (output != nullptr) {
+            output->close();
+        }
     }
-
 }

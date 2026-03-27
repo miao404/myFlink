@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="BackendCodeEditorMiscSettings">
+    <option name="/Default/Housekeeping/FeatureSuggestion/FeatureSuggestionManager/DisabledSuggesters/=SwitchToGoToActionSuggester/@EntryIndexedValue" value="true" type="bool" />
+    <option name="/Default/Housekeeping/GlobalSettingsUpgraded/IsUpgraded/@EntryValue" value="true" type="bool" />
+    <option name="/Default/RiderDebugger/RiderRestoreDecompile/RestoreDecompileSetting/@EntryValue" value="false" type="bool" />
+  </component>
   <component name="BranchesTreeState">
     <expand>
       <path>
@@ -18,16 +26,47 @@
     </expand>
     <select />
   </component>
+  <component name="CMakeProjectFlavorService">
+    <option name="flavorId" value="CMakePlainProjectFlavor" />
+  </component>
+  <component name="CMakeSettings">
+    <configurations>
+      <configuration PROFILE_NAME="Debug" ENABLED="true" CONFIG_NAME="Debug" />
+    </configurations>
+  </component>
   <component name="ChangeListManager">
-    <list default="true" id="ed2e6d7e-08a9-41a3-9da6-cddd609dff48" name="Default Changelist" comment="" />
+    <list default="true" id="ed2e6d7e-08a9-41a3-9da6-cddd609dff48" name="Default Changelist" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cpp/core/api/common/TimerThreadPool.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/cpp/core/api/common/TimerThreadPool.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cpp/runtime/taskmanager/OmniRuntimeEnvironment.h" beforeDir="false" afterPath="$PROJECT_DIR$/cpp/runtime/taskmanager/OmniRuntimeEnvironment.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cpp/runtime/taskmanager/OmniTask.cpp" beforeDir="false" afterPath="$PROJECT_DIR$/cpp/runtime/taskmanager/OmniTask.cpp" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cpp/streaming/runtime/io/OmniAbstractStreamTaskNetworkInput.h" beforeDir="false" afterPath="$PROJECT_DIR$/cpp/streaming/runtime/io/OmniAbstractStreamTaskNetworkInput.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cpp/streaming/runtime/io/OmniStreamTwoInputProcessorFactory.h" beforeDir="false" afterPath="$PROJECT_DIR$/cpp/streaming/runtime/io/OmniStreamTwoInputProcessorFactory.h" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/cpp/streaming/runtime/tasks/omni/OmniStreamTask.h" beforeDir="false" afterPath="$PROJECT_DIR$/cpp/streaming/runtime/tasks/omni/OmniStreamTask.h" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
+  <component name="ClangdSettings">
+    <option name="formatViaClangd" value="false" />
+  </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "miao404"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/miao404/myFlink.git",
+    "accountId": "30e1d9dc-6c95-4779-acc0-ab2f8c8352cd"
+  }
+}]]></component>
   <component name="MavenImportPreferences">
     <option name="generalSettings">
       <MavenGeneralSettings>
@@ -37,17 +76,34 @@
       </MavenGeneralSettings>
     </option>
   </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 0
+}</component>
   <component name="ProjectId" id="35jcy2YxqkKm6o6jWTjhDXOt82k" />
   <component name="ProjectViewState">
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">
-    <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
-    <property name="WebServerToolWindowFactoryState" value="false" />
-    <property name="aspect.path.notification.shown" value="true" />
-    <property name="nodejs_package_manager_path" value="npm" />
-    <property name="settings.editor.selected.configurable" value="reference.settings.project.maven.runner" />
-  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "RunOnceActivity.RadMigrateCodeStyle": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.cidr.known.project.marker": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.readMode.enableVisualFormatting": "true",
+    "cf.first.check.clang-format": "false",
+    "cidr.known.project.marker": "true",
+    "git-widget-placeholder": "fix__oom",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "M:/Users/z00851215/github/myFlink",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "vue.rearranger.settings.migration": "true"
+  }
+}]]></component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
@@ -58,6 +114,9 @@
       <updated>1763627172256</updated>
       <workItem from="1763627174727" duration="1421000" />
       <workItem from="1773063851994" duration="1696000" />
+      <workItem from="1773921323757" duration="74000" />
+      <workItem from="1774598380875" duration="173000" />
+      <workItem from="1774598563484" duration="1447000" />
     </task>
     <task id="LOCAL-00001" summary="update">
       <created>1773064574465</created>
@@ -77,12 +136,17 @@
       <map>
         <entry key="MAIN">
           <value>
-            <State />
+            <State>
+              <option name="CUSTOM_BOOLEAN_PROPERTIES">
+                <map>
+                  <entry key="Show.Git.Branches" value="false" />
+                </map>
+              </option>
+            </State>
           </value>
         </entry>
       </map>
     </option>
-    <option name="oldMeFiltersMigrated" value="true" />
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="update" />

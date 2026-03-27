@@ -22,14 +22,10 @@ namespace omnistream {
     {
         LOG_TRACE("create OmniCreditBasedSequenceNumberingViewReader "
             << reinterpret_cast<long>(this))
-        nettyBufferPool = new NettyBufferPool(bufferPoolSize, bufferSize);
+        nettyBufferPool = std::make_unique<NettyBufferPool>(bufferPoolSize, bufferSize);
     }
 
-    OmniCreditBasedSequenceNumberingViewReader::~OmniCreditBasedSequenceNumberingViewReader()
-    {
-        //        delete nettyBufferPool;
-        //        delete outputBufferStatus;
-    }
+    OmniCreditBasedSequenceNumberingViewReader::~OmniCreditBasedSequenceNumberingViewReader() = default;
 
     void OmniCreditBasedSequenceNumberingViewReader::notifyDataAvailable()
     {
@@ -364,9 +360,8 @@ namespace omnistream {
     {
         INFO_RELEASE(
             "------- destroyNettyBufferPool, delete nettyBufferPool = ")
-        if (nettyBufferPool) {
-            delete nettyBufferPool;
-            nettyBufferPool = nullptr;
+        if (nettyBufferPool != nullptr) {
+            nettyBufferPool.reset();
         }
     }
 
@@ -376,7 +371,7 @@ namespace omnistream {
         auto it = networkBufferPendingRecycling.find(address);
         if (it != networkBufferPendingRecycling.end()) {
             it->second->RecycleBuffer();
-            // do not need to delete buffer here, buffer is deleted in the destructor of BufferConsumer
+            delete it->second; // this is ReadOnlySlicedNetworkBuffer, so we directly delete it
             networkBufferPendingRecycling.erase(it);
         }
     }
