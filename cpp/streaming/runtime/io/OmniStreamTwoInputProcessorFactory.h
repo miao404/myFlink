@@ -132,7 +132,7 @@ namespace omnistream {
             using RecordConsumer = std::function<void(StreamRecord*, TwoInputStreamOperator* streamOperator)>;
 
             OmniStreamTaskNetworkOutPut(TwoInputStreamOperator *op, RecordConsumer consumer,
-                int32_t inputIndex, std::shared_ptr<omnistream::SimpleCounter> numRecordsIn)
+                int64_t inputIndex, std::shared_ptr<omnistream::SimpleCounter> numRecordsIn)
                 : streamOperator(op), consumer_(consumer), inputIndex(inputIndex), numRecordsIn(numRecordsIn)
             {}
 

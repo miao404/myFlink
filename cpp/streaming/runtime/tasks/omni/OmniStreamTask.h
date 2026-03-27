@@ -48,7 +48,10 @@ namespace omnistream {
 
         virtual ~OmniStreamTask()
         {
-            delete inputProcessor_;
+            if (inputProcessor_ != nullptr) {
+                delete inputProcessor_;
+                inputProcessor_ = nullptr;
+            }
         }
 
         // getter

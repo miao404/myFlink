@@ -102,9 +102,8 @@ namespace omnistream {
         for (auto &gate : this->inputGates) {
             input_gates.push_back(gate);
         }
-        auto self = std::shared_ptr<OmniTask>(this);
         runtimeEnv = std::make_shared<RuntimeEnvironmentV2>(shuffleEnv_, taskInfo_, jobInfo_, taskPlainInfo,
-            executionId_, writers, input_gates, self, taskMetricGroup, taskStateManagerBridge_,
+            executionId_, writers, input_gates, this, taskMetricGroup, taskStateManagerBridge_,
             taskOperatorEventGatewayBridge_, omni_task_bridge, taskDeploymentDescriptor_);
 
         // only for datastream to bind core

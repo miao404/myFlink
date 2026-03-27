@@ -50,7 +50,7 @@ public:
     DataInputStatus emitNext(OmniPushingAsyncDataInput::OmniDataOutput *output) override
     {
         // we might need reconstruct here
-        if (auto curOutput = reinterpret_cast<OmniStreamTaskNetworkOutput*>(output)) {
+        if (auto curOutput = dynamic_cast<OmniStreamTaskNetworkOutput*>(output)) {
             curOutput->setTaskType(taskType);
         }
 
