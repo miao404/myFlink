@@ -122,7 +122,7 @@ namespace omnistream {
     {
         if (invokable_ != nullptr) {
             invokable_->cancel();
-            if (!invokable_ && !invokable_->input_processor()) {
+            if (invokable_->input_processor() != nullptr) {
                 invokable_->input_processor()->close();
             }
         }
@@ -309,12 +309,13 @@ namespace omnistream {
 
         LOG_INFO_IMP("Invokable Invoke")
         this->invokable_->cleanup();
-        this->invokable_ = nullptr;
         this->ReleaseResources();
         originalNetworkBufferRecycler_->stop();
 
-        // sleep for a while
-        // std::this_thread::sleep_for(std::chrono::milliseconds(200));
+        this->invokable_.reset();
+        // The memory pointed by this should be deleted.
+        // Maybe there might be a more appropriate place to delete this.
+        delete this;
     }
 
 
@@ -362,8 +363,7 @@ namespace omnistream {
 
     void OmniTask::CloseAllInputGates()
     {
-        std::shared_ptr<OmniStreamTask> invoke=this->invokable_;
-        if (invoke==nullptr||invokable_->IsUsingNonBlockingInput()==false) {
+        if (invokable_ == nullptr || invokable_->IsUsingNonBlockingInput() == false) {
             for (auto &inputGate : inputGates) {
                 try {
                     inputGate->close();
@@ -451,10 +451,9 @@ namespace omnistream {
     }
     void OmniTask::notifyCheckpointComplete(long checkpointID, long inputState)
     {
-        std::shared_ptr<OmniStreamTask> invokable = invokable_;
-        if (inputState == 3 && invokable != nullptr) {
+        if (inputState == 3 && invokable_ != nullptr) {
             try {
-                invokable->notifyCheckpointCompleteAsync(checkpointID);
+                invokable_->notifyCheckpointCompleteAsync(checkpointID);
             } catch (const std::exception& e) {
                 throw;
             }
@@ -473,18 +472,17 @@ namespace omnistream {
                                     long latestCompletedCheckpointId,
                                     OmniTask::NotifyCheckpointOperation notifyCheckpointOperation)
     {
-        std::shared_ptr<OmniStreamTask> invokable = invokable_;
-        if (executionState == ExecutionState::RUNNING && invokable != nullptr) {
+        if (executionState == ExecutionState::RUNNING && invokable_ != nullptr) {
             try {
                 switch (notifyCheckpointOperation) {
                     case OmniTask::NotifyCheckpointOperation::ABORT:
-                        invokable->notifyCheckpointAbortAsync(checkpointId, latestCompletedCheckpointId);
+                        invokable_->notifyCheckpointAbortAsync(checkpointId, latestCompletedCheckpointId);
                         break;
                     case OmniTask::NotifyCheckpointOperation::COMPLETE:
-                        invokable->notifyCheckpointCompleteAsync(checkpointId);
+                        invokable_->notifyCheckpointCompleteAsync(checkpointId);
                         break;
                     case OmniTask::NotifyCheckpointOperation::SUBSUME:
-                        invokable->notifyCheckpointSubsumedAsync(checkpointId);
+                        invokable_->notifyCheckpointSubsumedAsync(checkpointId);
                         break;
                 }
             } catch (const std::exception& e) {
@@ -551,12 +549,25 @@ namespace omnistream {
             if (it != inputChannelMap.end()) {
                 // Partition exists in the map
                 std::shared_ptr<InputChannel> channel = it->second;
+                std::shared_ptr<InputChannel> inputChannel = channel;
+                LOG("changeLocalInputChannelToOriginal invoke!")
+                if(auto local2 = std::dynamic_pointer_cast<OmniLocalInputChannel>(inputChannel)){
+                    LOG("changeLocalInputChannelToOriginal instance of OmniLocalInputChannel!");
+                } else  if(auto local1 = std::dynamic_pointer_cast<LocalInputChannel>(inputChannel)){
+                    LOG("changeLocalInputChannelToOriginal instance of LocalInputChannel!");
+                } else if(auto remote1 = std::dynamic_pointer_cast<RemoteInputChannel>(inputChannel)){
+                    LOG("changeLocalInputChannelToOriginal instance of RemoteInputChannel!");
+                } else{
+                    LOG("changeLocalInputChannelToOriginal unKnown channel type!");
+                }
+                
                 // create omniLocalInputChannel
                 auto omniShuffleEnv = std::dynamic_pointer_cast<OmniShuffleEnvironment>(this->shuffleEnv_);
                 std::shared_ptr<SingleInputGateFactory> singleInputGateFactory = omniShuffleEnv->
                     getSingleInputGateFactory();
                 shared_ptr<OmniLocalInputChannel> originalInputChannel = singleInputGateFactory->
                         createOriginalInputChannel(singleInputGate, channel->getChannelIndex(), partitionId);
+                originalInputChannel->SetForwardResumeToJava(singleInputGate->GetForwardResumeToJava());
                 inputChannelMap[irp] = originalInputChannel;
                 singleInputGate->changeLocalInputChannelToOriginal(channel->getChannelIndex(), originalInputChannel);
                 return reinterpret_cast<long>(originalInputChannel.get());
@@ -585,7 +596,7 @@ namespace omnistream {
 
     void OmniTask::triggerCheckpointBarrier(long checkpointid, long checkpointtimestamp, CheckpointOptions *checkpoint_options)
     {
-        std::shared_ptr<OmniStreamTask> checkpointableTask=this->invokable_;
+        OmniStreamTask *checkpointableTask = this->invokable_.get();
         CheckpointMetaData *checkpointMetaData = new CheckpointMetaData(
         checkpointid,
         checkpointtimestamp,

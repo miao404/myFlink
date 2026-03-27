@@ -30,6 +30,7 @@
 #include "streaming/runtime/io/OmniStreamTaskNetworkOutput.h"
 #include "typeutils/TypeSerializer.h"
 #include "runtime/io/checkpointing/CheckpointedInputGate.h"
+#include "runtime/event/EndOfChannelStateEvent.h"
 namespace omnistream {
 class OmniAbstractStreamTaskNetworkInput : public OmniStreamTaskInput {
 public:
@@ -38,7 +39,7 @@ public:
         : inputIndex(inputIndex), inputGate(std::move(inputGate)), taskType(taskType), currentRecordDeserializer(nullptr), output_(nullptr)
     {
         inSerializer = inputSerializer;
-        deserializationDelegate_ = new NonReusingDeserializationDelegate(new datastream::StreamElementSerializer(inputSerializer));
+        deserializationDelegate_ = std::make_unique<NonReusingDeserializationDelegate>(new datastream::StreamElementSerializer(inSerializer));
         recordDeserializers = getRecordDeserializers(channelInfos);
         rowCount = 0;
         maxRowCount = 1000;
@@ -105,22 +106,22 @@ public:
             return inputGate->GetAvailableFuture();
         }
     }
-    std::unique_ptr<std::unordered_map<long, datastream::RecordDeserializer *>> getRecordDeserializers(
-    std::vector<long> & channelInfos)
-    {
-        std::unique_ptr<std::unordered_map<long, datastream::RecordDeserializer *>> recordDeserializers
-                = std::make_unique<std::unordered_map<long, datastream::RecordDeserializer *>>();
+    std::unique_ptr<std::unordered_map<long, std::unique_ptr<RecordDeserializer>>> getRecordDeserializers(std::vector<long> & channelInfos) {
+        std::unique_ptr<std::unordered_map<long, std::unique_ptr<RecordDeserializer>>> recordDeserializers
+                = std::make_unique<std::unordered_map<long, std::unique_ptr<RecordDeserializer>>>();
         for (size_t i = 0; i < channelInfos.size(); i++) {
-            LOG("getRecordDeserializers channelInfo " << i)
-            auto deserializer = new datastream::SpillingAdaptiveSpanningRecordDeserializer();
-            (*recordDeserializers)[channelInfos.at(i)] = deserializer;
+            auto deserializer = std::make_unique<SpillingAdaptiveSpanningRecordDeserializer>();
+            recordDeserializers->emplace(channelInfos.at(i), std::move(deserializer));
         }
         return recordDeserializers;
     }
 
-    [[nodiscard]] datastream::RecordDeserializer *getActiveSerializer(long channelInfo) const
-    {
-        return (*recordDeserializers)[channelInfo];
+    [[nodiscard]] RecordDeserializer *getActiveSerializer(long channelInfo) const {
+        auto it = recordDeserializers->find(channelInfo);
+        if (it == recordDeserializers->end()) {
+            THROW_RUNTIME_ERROR("ChannelInfo not found in recordDeserializers");
+        }
+        return it->second.get();
     }
 
     DataInputStatus processBufferOrEventOptForSQL(OmniPushingAsyncDataInput::OmniDataOutput *output,
@@ -156,8 +157,12 @@ public:
                     output->emitWatermark(reinterpret_cast<Watermark *>(object));
                 }
             }
-            // more avaiable means there could be more data come in
+
             buff->RecycleBuffer();
+            delete buff; // this is ReadOnlySlicedNetworkBuffer, so we directly delete it
+            buff = nullptr;
+
+            // more avaiable means there could be more data come in
             return DataInputStatus::MORE_AVAILABLE;
         } else {
             // we got event
@@ -213,6 +218,7 @@ public:
 
     DataInputStatus processForDataStream(OmniPushingAsyncDataInput::OmniDataOutput *output)
     {
+        LOG("datastream processForDataStream");
         while (true) {
             if (currentRecordDeserializer != nullptr) {
                 DeserializationResult &result = currentRecordDeserializer->getNextRecord(*deserializationDelegate_);
@@ -551,12 +557,20 @@ protected:
     {
         if (dynamic_cast<EndOfData *>(event.get())) { // END_OF_USER_RECORDS_EVENT is End_of_Data
             if (inputGate->HasReceivedEndOfData()) {
+                INFO_RELEASE("received a EndOfData event!");
                 return DataInputStatus::END_OF_DATA;
             }
         } else if (dynamic_cast<EndOfPartitionEvent *>(event.get())) {
             // it means one sub partition or channel end. we need to check if all end by checking input gate state
             if (inputGate->IsFinished()) {
+                INFO_RELEASE("received a EndOfPartitionEvent event!");
                 return DataInputStatus::END_OF_INPUT;
+            }
+        } else if (dynamic_cast<EndOfChannelStateEvent *>(event.get())) {
+            INFO_RELEASE("received a end of recovery event start");
+            if (inputGate->AllChannelsRecovered()) {
+                INFO_RELEASE("received a end of recovery event end");
+                return DataInputStatus::END_OF_RECOVERY;
             }
         }
         // by default,continue the data processing
@@ -577,6 +591,12 @@ protected:
             if (inputGate->IsFinished()) {
                 return DataInputStatus::END_OF_INPUT;
             }
+        } else if (dynamic_cast<EndOfChannelStateEvent *>(event.get())) {
+            INFO_RELEASE("received a end of recovery event start");
+            if (inputGate->AllChannelsRecovered()) {
+                INFO_RELEASE("received a end of recovery event end");
+                return DataInputStatus::END_OF_RECOVERY;
+            }
         }
         // by default,continue the data processing
         return DataInputStatus::MORE_AVAILABLE;
@@ -587,10 +607,10 @@ private:
     int NullValueCount = 0;
     bool isLastValueNull = false;
     int taskType;
-    std::unique_ptr<std::unordered_map<long, datastream::RecordDeserializer *>> recordDeserializers;
-    datastream::RecordDeserializer* currentRecordDeserializer;
-    DeserializationDelegate* deserializationDelegate_;
-    TypeSerializer *inSerializer;
+    std::unique_ptr<std::unordered_map<long, std::unique_ptr<RecordDeserializer>>> recordDeserializers;
+    RecordDeserializer* currentRecordDeserializer;
+    std::unique_ptr<DeserializationDelegate> deserializationDelegate_;
+    TypeSerializer* inSerializer;
     // Determine if the upstream task is an original Java task.
     bool fromOriginal = true;
     // When the current SQL task has a Java task as its upstream,

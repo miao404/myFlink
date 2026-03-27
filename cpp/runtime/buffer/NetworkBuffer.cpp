@@ -11,7 +11,7 @@
 
 #include "NetworkBuffer.h"
 #include "ReadOnlySlicedNetworkBuffer.h"
-namespace datastream {
+namespace omnistream::datastream {
     // create in BufferBuilder
     NetworkBuffer::NetworkBuffer(
             MemorySegment *memorySegment,
@@ -32,9 +32,9 @@ namespace datastream {
         readerIndex_ = 0;
 
         this->recycler = recycler;
-        this->currentSize = memorySegment->getSize();
+        this->currentSize = 0;
         // Invoking this constructor implies that the caller (bufferBuilder) owns the segment
-        refCount.store(1);
+        refCount_.store(1);
         this->segmentOwner = segmentOwner;
     }
 
@@ -67,7 +67,7 @@ namespace datastream {
         this->recycler = recycler;
         this->currentSize = bufferLength;
         this->readerIndex_ = readIndex;
-        refCount.store(1);
+        refCount_.store(1);
         this->segmentOwner = segmentOwner;
     }
 
