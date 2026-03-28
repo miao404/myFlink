@@ -408,8 +408,9 @@ namespace omnistream {
         }
         std::shared_ptr<ResultPartitionManager> resultPartitionManager = omniShuffleEnv->getResultPartitionManager();
 
-        auto reader = std::make_shared<OmniCreditBasedSequenceNumberingViewReader>(partitionId,
+        auto reader = std::make_unique<OmniCreditBasedSequenceNumberingViewReader>(partitionId,
             subPartitionId, resultBufferAddress);
+        auto readerAddr = reinterpret_cast<long>(reader.get());
 
         int retryCount = 0;
         while (true) {
@@ -427,7 +428,8 @@ namespace omnistream {
                 return -1;
             }
         }
-        return reinterpret_cast<long>(reader.get());
+        omniCreditBasedSequenceNumberingViewReaders.push_back(std::move(reader));
+        return readerAddr;
     }
 
     std::shared_ptr<TaskMetricGroup> OmniTask::getTaskMetricGroup()
@@ -514,8 +516,9 @@ namespace omnistream {
         }
         std::shared_ptr<ResultPartitionManager> resultPartitionManager = omniShuffleEnv->getResultPartitionManager();
 
-        auto reader = std::make_shared<OmniLocalChannelReader>(partitionId,
+        auto reader = std::make_unique<OmniLocalChannelReader>(partitionId,
                                                                subPartitionId, returnDataAddress, taskNameWithSubtask_);
+        auto readerAddr = reinterpret_cast<long>(reader.get());
 
         int retryCount = 0;
         while (true) {
@@ -534,8 +537,8 @@ namespace omnistream {
                 return -1;
             }
         }
-        omniLocalInputChannelReaders.push_back(reader);
-        return reinterpret_cast<long>(reader.get());
+        omniLocalInputChannelReaders.push_back(std::move(reader));
+        return readerAddr;
     }
 
     long OmniTask::changeLocalInputChannelToOriginal(ResultPartitionIDPOD partitionId)
