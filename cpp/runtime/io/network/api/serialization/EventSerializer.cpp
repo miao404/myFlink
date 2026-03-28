@@ -322,6 +322,7 @@ namespace omnistream {
         // Build the CheckpointOptions instance
         CheckpointOptions* parsedOptions = new CheckpointOptions(snapshotType, locationRef, alignmentType, alignmentTimeout);
         CheckpointOptions* runtimeOptions = parsedOptions->ToRuntimeAlignedNoTimeout();
+        delete parsedOptions;
         // Construct and return the CheckpointBarrier
         return std::make_shared<CheckpointBarrier>(id, timestamp, runtimeOptions);
     }
