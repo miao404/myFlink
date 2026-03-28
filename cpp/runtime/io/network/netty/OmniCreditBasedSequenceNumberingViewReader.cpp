@@ -25,7 +25,15 @@ namespace omnistream {
         nettyBufferPool = std::make_unique<NettyBufferPool>(bufferPoolSize, bufferSize);
     }
 
-    OmniCreditBasedSequenceNumberingViewReader::~OmniCreditBasedSequenceNumberingViewReader() = default;
+    OmniCreditBasedSequenceNumberingViewReader::~OmniCreditBasedSequenceNumberingViewReader() {
+        INFO_RELEASE("When OmniCreditBasedSequenceNumberingViewReader is destroyed, "
+            "there are still " + std::to_string(networkBufferPendingRecycling.size()) + " network buffers not recycled");
+        for (auto it = networkBufferPendingRecycling.begin(); it != networkBufferPendingRecycling.end();) {
+            it->second->RecycleBuffer();
+            delete it->second; // this is ReadOnlySlicedNetworkBuffer, so we directly delete it
+            it = networkBufferPendingRecycling.erase(it);
+        }
+    };
 
     void OmniCreditBasedSequenceNumberingViewReader::notifyDataAvailable()
     {
@@ -40,7 +48,7 @@ namespace omnistream {
         std::lock_guard<std::recursive_mutex> lock(queueMutex);
         this->subpartitionView = resultPartitionManager->createSubpartitionView(
             partitionId, subPartitionId,
-            BufferAvailabilityListener::shared_from_this());
+            this);
         if (!this->subpartitionView) {
             LOG_TRACE("subpartitionView is null.........................");
             throw std::runtime_error("Subpartition view is null");
