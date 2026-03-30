@@ -112,18 +112,9 @@ namespace omnistream {
 
         ~OperatorChainV2()
         {
-            auto opWrap = mainOperatorWrapper;
-            while (opWrap != nullptr) {
-                auto op = opWrap->getStreamOperator();
-                delete op;
-                opWrap = opWrap->getNext();
-            }
             delete mainOperatorWrapper;
             mainOperatorWrapper = nullptr;
-            if (tailOperatorWrapper) {
-                delete tailOperatorWrapper;
-                tailOperatorWrapper = nullptr;
-            }
+            tailOperatorWrapper = nullptr;
         }
 
     void finishOperators(StreamTaskActionExecutor *actionExecutor);
@@ -184,7 +175,7 @@ namespace omnistream {
     void NotifyCheckpointComplete(long checkpointId);
     void NotifyCheckpointAborted(long checkpointId);
     void NotifyCheckpointSubsumed(long checkpointId);
-    void SnapshotState(std::unordered_map<OperatorID, OperatorSnapshotFutures *>& operatorSnapshotsInProgress,
+    void SnapshotState(std::unordered_map<OperatorID, OperatorSnapshotFutures *> *operatorSnapshotsInProgress,
         CheckpointMetaData &checkpointMetaData, CheckpointOptions *checkpointOptions, std::shared_ptr<Supplier<bool>> isRunning,
         std::shared_ptr<ChannelStateWriter::ChannelStateWriteResult> channelStateWriteResult, CheckpointStreamFactory* storage,
         const std::shared_ptr<OmniTaskBridge>& bridge);

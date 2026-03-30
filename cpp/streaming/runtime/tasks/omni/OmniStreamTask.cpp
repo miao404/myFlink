@@ -89,7 +89,7 @@ OmniStreamTask::OmniStreamTask(std::shared_ptr<RuntimeEnvironmentV2> &env,
         stateBackend = new RocksDBStateBackend(taskConfiguration_);
     }
     checkpointStorage = createCheckpointStorage(stateBackend);
-    std::shared_ptr<CheckpointStorageAccess> checkpointStorageAccess = checkpointStorage->createCheckpointStorage();
+    std::shared_ptr<CheckpointStorageAccess> checkpointStorageAccess = checkpointStorage->createCheckpointStorage(taskConfiguration_.getTmpWorkingDirectory());
 
         subtaskCheckpointCoordinator = std::make_shared<runtime::SubtaskCheckpointCoordinatorImpl>(
             checkpointStorage,
@@ -157,7 +157,7 @@ OmniStreamTask::OmniStreamTask(std::shared_ptr<RuntimeEnvironmentV2> &env,
         LOG("Initializing {}." << getName());
 
         this->operatorChain =
-            new RegularOperatorChain(std::weak_ptr<OmniStreamTask>(shared_from_this()), this->recordWriter_);
+             std::make_unique<RegularOperatorChain>(std::weak_ptr<OmniStreamTask>(shared_from_this()), this->recordWriter_);
         StreamTaskStateInitializerImpl *initializer =
             new StreamTaskStateInitializerImpl(stateBackend, env_.get());
         this->operatorChain->initializeStateAndOpenOperators(initializer, taskConfiguration_);
@@ -218,7 +218,7 @@ OmniStreamTask::OmniStreamTask(std::shared_ptr<RuntimeEnvironmentV2> &env,
  */
 
     // simple requirePartionView for each local chaneel
-    void OmniStreamTask::restoreGates() 
+    void OmniStreamTask::restoreGates()
     {
         try {
             INFO_RELEASE("restoreGates begin " << taskName_);
@@ -237,14 +237,14 @@ OmniStreamTask::OmniStreamTask(std::shared_ptr<RuntimeEnvironmentV2> &env,
             }
 
             reader->readInputData(inputGateVec);
-                
+
             LOG("restoreGates before recovery mailbox loop");
             mailboxProcessor_->runMailboxLoop();
             LOG("restoreGates after recovery mailbox loop");
-                
+
             for (const auto& inputGate : inputGateVec) {
                 auto recoveredFlags = inputGate->getStateConsumedFuture1();
-                            
+
                 bool allRecovered = true;
                 for (bool done : recoveredFlags) {
                     if (!done) {
@@ -252,24 +252,24 @@ OmniStreamTask::OmniStreamTask(std::shared_ptr<RuntimeEnvironmentV2> &env,
                         break;
                     }
                 }
-                            
+
                 if (!allRecovered) {
                     LOG("restoreGates: some recovered channels are not fully consumed yet");
                     throw std::runtime_error(
                                                 "restoreGates exited but some recovered channels were not fully consumed");
                 }
-                            
+
                 INFO_RELEASE("restoreGates requestPartitions directly after recovery loop");
                 inputGate->RequestPartitions(taskType);
             }
-                
+
             INFO_RELEASE("restoreGates complete!");
         } catch (...) {
             INFO_RELEASE("Error: restoreGates failed, unable to read channel state");
             throw std::runtime_error("restoreGates failed, unable to read channel state");
         }
     }
-    
+
     void OmniStreamTask::invoke()
     {
         LOG("Invoking {}." << getName());
@@ -310,8 +310,7 @@ OmniStreamTask::OmniStreamTask(std::shared_ptr<RuntimeEnvironmentV2> &env,
         if (mode == StopMode::DRAIN) {
             AdvanceToEndOfEventTime();
         }
-
-        if (operatorChain) {
+        if (operatorChain != nullptr) {
             operatorChain->finishOperators(actionExecutor_.get());
             this->finishedOperators = true;
         }
@@ -583,7 +582,7 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
                 );
 
                     subtaskCheckpointCoordinator->checkpointState(checkpointMetaData, checkpointOptions, checkpointMetrics,
-                        operatorChain, finishedOperators, isRunningLoad);
+                        operatorChain.get(), finishedOperators, isRunningLoad);
                 }
             );
             if (isRunning) {
@@ -688,7 +687,7 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
                         [running]() { return std::make_shared<bool>(running); });
 
                 subtaskCheckpointCoordinatorImpl->notifyCheckpointSubsumed(
-                    checkpointId, operatorChain, isRunningSupplier.get());
+                    checkpointId, operatorChain.get(), isRunningSupplier.get());
             },
             description);
     }
@@ -716,7 +715,7 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
                     [running]() { return std::make_shared<bool>(running); });
 
             subtaskCheckpointCoordinatorImpl->notifyCheckpointAborted(
-                checkpointId, operatorChain, isRunningSupplier.get());
+                checkpointId, operatorChain.get(), isRunningSupplier.get());
             },
             description);
     }
@@ -753,7 +752,7 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
                 [running]() { return std::make_shared<bool>(running); });
 
         subtaskCheckpointCoordinatorImpl->notifyCheckpointComplete(
-            checkpointId, operatorChain, isRunningSupplier.get());
+            checkpointId, operatorChain.get(), isRunningSupplier.get());
 
         if (isRunning) {
             if (isCurrentSyncSavepoint(checkpointId)) {

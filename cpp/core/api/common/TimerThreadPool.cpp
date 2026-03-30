@@ -69,9 +69,8 @@ namespace omnistream {
                             next_task.execute_time += std::chrono::milliseconds(task_wrapper.period_ms);
                             timers_.push(next_task);
                         } else {
-                            cancelled_ids_.erase(task_wrapper.id);  // 清理
+                            cancelled_ids_.erase(task_wrapper.id);
                         }
-
                     }
 
                     // 解锁定时器锁，因为后面要把任务发给工作线程
@@ -137,7 +136,7 @@ namespace omnistream {
                 auto id = top.id;
                 timers_.pop();
                 // 注意：对于循环任务，如果这里移除了，就不会再重入队了，等于彻底取消
-                cancelled_ids_.erase(id); // 清理已处理的取消ID
+                cancelled_ids_.erase(id);
             } else {
                 break;
             }
