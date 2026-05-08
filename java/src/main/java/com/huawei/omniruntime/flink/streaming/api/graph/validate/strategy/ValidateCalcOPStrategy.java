@@ -278,7 +278,61 @@ public class ValidateCalcOPStrategy extends AbstractValidateOperatorStrategy {
                     return false;
                 }
 
+                // Validate json_split function signature: 1 STRING argument, STRING return type
+                String functionName = (String) exprMap.get("function_name");
+                if ("json_split".equals(functionName)) {
+                    Object argumentsObj = exprMap.get("arguments");
+                    if (!(argumentsObj instanceof List)) {
+                        LOG.info("ERROR: json_split arguments is not a list");
+                        return false;
+                    }
+                    List<?> args = (List<?>) argumentsObj;
+                    if (args.size() != 1) {
+                        LOG.info("ERROR: json_split expects exactly 1 argument, but got {}", args.size());
+                        return false;
+                    }
+                    // Validate return type is VARCHAR (15) or CHAR (16)
+                    Object returnTypeVal = exprMap.get("returnType");
+                    if (returnTypeVal instanceof Integer) {
+                        int retType = (Integer) returnTypeVal;
+                        if (retType != 15 && retType != 16) { // 15=VARCHAR, 16=CHAR
+                            LOG.info("ERROR: json_split expects STRING return type, but got typeId {}", retType);
+                            return false;
+                        }
+                    }
+                }
+
+                if ("json_query".equals(functionName)) {
+                    Object argumentsObj = exprMap.get("arguments");
+                    if (!(argumentsObj instanceof List)) {
+                        LOG.info("ERROR: json_query arguments is not a list");
+                        return false;
+                    }
+                    List<?> args = (List<?>) argumentsObj;
+                    if (args.size() != 2) {
+                        LOG.info("ERROR: json_query expects exactly 2 arguments, but got {}", args.size());
+                        return false;
+                    }
+                    Object returnTypeVal = exprMap.get("returnType");
+                    if (returnTypeVal instanceof Integer) {
+                        int retType = (Integer) returnTypeVal;
+                        if (retType != 15 && retType != 16) {
+                            LOG.info("ERROR: json_query expects STRING return type, but got typeId {}", retType);
+                            return false;
+                        }
+                    }
+                }
+
                 return validateReturnTypeAndArguments(exprMap, inputSize);
+
+            case "COALESCE":
+                if (!exprMap.containsKey("returnType") || !exprMap.containsKey("value1") || !exprMap.containsKey("value2")) {
+                    return false;
+                }
+                if (!validateCalcExprMaps(inputSize, "COALESCE", exprMap.get("value1"), exprMap.get("value2"))) {
+                    return false;
+                }
+                return true;
 
             case "SWITCH_GENERAL":
                 if (!exprMap.containsKey("returnType") || !exprMap.containsKey("numOfCases") || !exprMap.containsKey("else")) {
@@ -378,7 +432,8 @@ public class ValidateCalcOPStrategy extends AbstractValidateOperatorStrategy {
                 }
                 return true;
             case "PROCTIME" :
-                return true;
+                return exprMap.containsKey("returnType")
+                        && RexTypeToIdMap.get("TIMESTAMP_WITH_LOCAL_TIME_ZONE").equals(exprMap.get("returnType"));
             default:
                 LOG.info("Invalid expr type: {}", exprType);
                 return false; // Invalid expr type

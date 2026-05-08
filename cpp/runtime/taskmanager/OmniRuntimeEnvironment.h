@@ -94,8 +94,7 @@ namespace omnistream {
             return omniShuffleEnvironment_;
         }
 
-        [[nodiscard]] TaskInformationPOD taskConfiguration() const override
-        {
+        const TaskInformationPOD& taskConfiguration() const override {
             return taskConfiguration_;
         }
 
@@ -202,7 +201,7 @@ namespace omnistream {
          */
         std::vector<std::shared_ptr<ResultPartitionWriter>> writers_;
         std::vector<std::shared_ptr<IndexedInputGate>> inputGates;
-        OmniTask* omniTask_;
+        OmniTask* omniTask_ = nullptr;
         std::shared_ptr<TaskMetricGroup> taskMetricGroup_;
         std::shared_ptr<TaskOperatorEventGateway> operatorEventGateway;
         std::shared_ptr<TaskStateManager> taskStateManager_;

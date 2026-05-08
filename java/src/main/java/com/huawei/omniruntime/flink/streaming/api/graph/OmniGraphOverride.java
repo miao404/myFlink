@@ -37,6 +37,7 @@ import org.apache.flink.streaming.api.graph.StreamEdge;
 import org.apache.flink.streaming.api.graph.StreamGraph;
 import org.apache.flink.streaming.api.graph.StreamNode;
 import org.apache.flink.streaming.api.graph.StreamingJobGraphGenerator;
+import org.apache.flink.streaming.api.operators.SimpleInputFormatOperatorFactory;
 import org.apache.flink.streaming.api.operators.SimpleOperatorFactory;
 import org.apache.flink.streaming.api.operators.SourceOperatorFactory;
 import org.apache.flink.streaming.api.operators.StreamOperator;
@@ -238,7 +239,8 @@ public final class OmniGraphOverride {
                                                     Map<Integer, StreamingJobGraphGenerator.OperatorChainInfo> chainInfos,
                                                     Map<Integer, Map<Integer, StreamConfig>> chainedConfigs,
                                                     Map<Integer, StreamConfig> vertexConfigs,
-                                                    JobType jobType) {
+                                                    JobType jobType,
+                                                    boolean checkpointingEnabled) {
 
         StreamConfig vertexConfig = new StreamConfig(vertexEntry.getValue().getConfiguration());
         Integer vertexID = vertexEntry.getKey();
@@ -247,7 +249,15 @@ public final class OmniGraphOverride {
 
         JobVertex jobVertex = vertexEntry.getValue();
 
-        if (validateVertexChainInfoForOmniTask(vertexID, chainInfos, chainedConfigs, jobVertex, vertexConfigs, jobType)) {
+        if (validateVertexChainInfoForOmniTask(vertexID, chainInfos, chainedConfigs, jobVertex, vertexConfigs,
+                jobType, checkpointingEnabled)) {
+            if (checkpointingEnabled && (vertexConfig.getOperatorName().contains("Source")
+                    || vertexConfig.getOperatorName().contains("Sink")
+                    || vertexConfig.getOperatorName().contains("Map"))) {
+                LOG.info("validateVertexForOmniTask  false for : vertexID is {}, and vertexName {}", vertexID, vertexConfig.getOperatorName());
+                vertexConfig.setUseOmniEnabled(false);
+                return false;
+            }
             LOG.info("validateVertexForOmniTask  true for : vertexID is {}, and vertexName {}", vertexID, vertexConfig.getOperatorName());
             vertexConfig.setUseOmniEnabled(true);
             return true;
@@ -298,7 +308,8 @@ public final class OmniGraphOverride {
     private static boolean validateVertexChainInfoForOmniTask(Integer vertexID,
                                                               Map<Integer, StreamingJobGraphGenerator.OperatorChainInfo> chainInfos,
                                                               Map<Integer, Map<Integer, StreamConfig>> chainedConfigs, JobVertex jobVertex,
-                                                              Map<Integer, StreamConfig> vertexConfigs, JobType jobType) {
+                                                              Map<Integer, StreamConfig> vertexConfigs, JobType jobType,
+                                                              boolean checkpointingEnabled) {
         // walkthrough each operator
         StreamingJobGraphGenerator.OperatorChainInfo chainInfo = chainInfos.get(vertexID);
         if (chainInfo == null) {
@@ -309,7 +320,7 @@ public final class OmniGraphOverride {
         StreamGraph streamGraph = chainInfo.getStreamGraph();
         List<StreamNode> chainedNode = chainInfo.getAllChainedNodes();
         for (StreamNode node : chainedNode) {
-            if (validateNodeForOmniTask(vertexID, vertexConfigs, jobType, streamGraph, node)) {
+            if (validateNodeForOmniTask(vertexID, vertexConfigs, jobType, streamGraph, node, checkpointingEnabled)) {
                 return false;
             }
         }
@@ -317,7 +328,8 @@ public final class OmniGraphOverride {
         StreamNode lastNode = chainedNode.get(0);
         StreamNode firstNode = chainedNode.get(chainedNode.size() - 1);
 
-        if (jobType == JobType.STREAM
+        if (checkpointingEnabled
+                && jobType == JobType.STREAM
                 && "Map".equals(lastNode.getOperatorName())
                 && firstNode.getOperatorFactory() instanceof SourceOperatorFactory) {
             SourceOperatorFactory<?> sourceOperatorFactory = (SourceOperatorFactory<?>) firstNode.getOperatorFactory();
@@ -330,24 +342,6 @@ public final class OmniGraphOverride {
 
         // Validates the serializer for DataStream transmission.
         if (validateDataStreamSerializer(jobType, chainedNode)) {
-            return false;
-        }
-
-        // revert window operator when parallelism > 1
-        boolean containsWindowOp = false;
-        for (StreamNode node : chainedNode) {
-            String opSimpleName = extractOperatorName(node.getOperatorName());
-            if (WINDOW_OP_NAMES.contains(opSimpleName)) {
-                containsWindowOp = true;
-                break;
-            }
-        }
-
-        int vertexParallelism = jobVertex.getParallelism();
-        if (containsWindowOp && vertexParallelism > 1) {
-            LOG.info("validateVertexChainInfoForOmniTask: rollback vertex ID {} "
-                            + "because it contains window operator with parallelism {} > 1",
-                    vertexID, vertexParallelism);
             return false;
         }
 
@@ -408,7 +402,8 @@ public final class OmniGraphOverride {
     }
 
     private static boolean validateNodeForOmniTask(Integer vertexID, Map<Integer, StreamConfig> vertexConfigs,
-                                                   JobType jobType, StreamGraph streamGraph, StreamNode node) {
+                                                   JobType jobType, StreamGraph streamGraph, StreamNode node,
+                                                   boolean checkpointingEnabled) {
         String operatorName = node.getOperatorName();
         String operatorDescription = node.getOperatorDescription();
         switch (jobType) {
@@ -435,7 +430,7 @@ public final class OmniGraphOverride {
                 boolean result;
                 try {
                     result = validateWatermark(node) && StreamNodeOptimized.getInstance().setExtraDescription(
-                            node, streamConfig, streamGraph, jobType);
+                            node, streamConfig, streamGraph, jobType, checkpointingEnabled);
                 } catch (NoSuchFieldException | IllegalAccessException | IOException | ClassNotFoundException e) {
                     throw new FlinkRuntimeException(
                             "Error occurs during the process of compatibility between new and old sinks or sources", e);
@@ -681,7 +676,7 @@ public final class OmniGraphOverride {
     private static boolean validateOperatorByNameForOmniTask(String operatorName, String operatorDescription,
                                                              StreamOperatorFactory operatorFactory) {
         if (isSource(operatorName)) {
-            return validateSource(operatorDescription);
+            return validateSource(operatorDescription, operatorFactory);
         } else if (isSink(operatorName)) {
             return validateSink(operatorName, operatorFactory);
         } else if (isConstraintEnforcer(operatorName)) {
@@ -738,8 +733,14 @@ public final class OmniGraphOverride {
         return "JsonRowDataSerializationSchema".equals(valueSerializationSchema.getClass().getSimpleName());
     }
 
-    private static boolean validateSource(String operatorDescription) {
+    private static boolean validateSource(String operatorDescription, StreamOperatorFactory operatorFactory) {
         if (!isSourceSupportNative) {
+            return false;
+        }
+        // VALUES-based sources (SimpleInputFormatOperatorFactory) are not supported
+        // in native SQL execution because OmniStream does not handle them
+        if (operatorFactory instanceof SimpleInputFormatOperatorFactory) {
+            LOG.info("validateSource: VALUES-based source (SimpleInputFormatOperatorFactory) is not supported for native execution");
             return false;
         }
         if (!operatorDescription.contains("originDescription")) {

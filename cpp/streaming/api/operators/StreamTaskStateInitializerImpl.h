@@ -122,8 +122,7 @@ protected:
     CheckpointableKeyedStateBackend<K> *keyedStatedBackend(
         TypeSerializer *keySerializer,
         std::string operatorIdentifierText,
-        MetricGroup *metricGroup,
-        double managedMemoryFraction);
+        MetricGroup *metricGroup);
 
 private:
     KeyGroupRange *computeKeyGroupRangeForOperatorIndex(
@@ -147,7 +146,7 @@ AbstractKeyedStateBackend<K> *StreamTaskStateInitializerImpl::keyedStatedBackend
     int end = ((operatorIndex + 1) * maxParallelism - 1) / parallelism;
     KeyGroupRange *keyGroupRange = new KeyGroupRange(start, end);
 
-    LOG("operatorIndex " << operatorIndex << " maxParallelism " << maxParallelism << " parallelism " << parallelism << " start " << start << " end " << end);
+    INFO_RELEASE("operatorIndex " << operatorIndex << " maxParallelism " << maxParallelism << " parallelism " << parallelism << " start " << start << " end " << end);
     // Not sure about maxParallelism being the input here
     InternalKeyContextImpl<K> *keyContext = new InternalKeyContextImpl<K>(keyGroupRange, maxParallelism);
     keyContext->setCurrentKeyGroupIndex(start);
@@ -168,20 +167,78 @@ AbstractKeyedStateBackend<K> *StreamTaskStateInitializerImpl::keyedStatedBackend
     int end = ((operatorIndex + 1) * maxParallelism - 1) / parallelism;
     KeyGroupRange *keyGroupRange = new KeyGroupRange(start, end);
 
-    LOG("operatorIndex " << operatorIndex << " maxParallelism " << maxParallelism << " parallelism " <<
+    INFO_RELEASE("operatorIndex " << operatorIndex << " maxParallelism " << maxParallelism << " parallelism " <<
     parallelism << " start " << start << " end " << end);
     // Not sure about maxParallelism being the input here
     InternalKeyContextImpl<K> *keyContext = new InternalKeyContextImpl<K>(keyGroupRange, maxParallelism);
     keyContext->setCurrentKeyGroupIndex(start);
 
     if (backendType == "HashMapStateBackend") {
-        return new HeapKeyedStateBackend<K>(keySerializer, keyContext);
+        delete keyContext;  // builder creates its own InternalKeyContext
+
+        HeapKeyedStateBackendBuilder<K> builder(keySerializer, maxParallelism, keyGroupRange);
+        auto taskStateManager = env == nullptr ? nullptr : env->getTaskStateManager();
+        if (taskStateManager == nullptr) {
+            INFO_RELEASE("HashMapStateBackend: no TaskStateManager, starting with empty heap state");
+            return builder.build();
+        }
+
+        auto omniTaskBridge = taskStateManager->getOmniTaskBridge();
+        if (omniTaskBridge) {
+            builder.setOmniTaskBridge(omniTaskBridge);
+        }
+        if (!taskStateManager->hasJobManagerTaskRestore()) {
+            INFO_RELEASE("HashMapStateBackend: no JobManagerTaskRestore, starting with empty heap state");
+            return builder.build();
+        }
+
+        // Retrieve state handles from checkpoint for restore
+        auto operatorIdStr = env->taskConfiguration().getStreamConfigPOD().getOperatorDescription().getOperatorId();
+        auto operatorId = TaskStateSnapshotDeserializer::HexStringToOperatorId<OperatorID>(operatorIdStr);
+        PrioritizedOperatorSubtaskState prioritizedOperatorSubtaskStates =
+            taskStateManager->prioritizedOperatorState(operatorId);
+
+        // Extract keyed state handles for restore
+        auto handleVector = prioritizedOperatorSubtaskStates.getPrioritizedManagedKeyedState();
+        // 诊断：把 handleVector 的层级数量、每层 handle 数（含 null 与非 null）、最终筛出的 stateHandles 数量都打出来。
+        // OS-CP→OS-restore 看不到 "restoring from N state handle(s)" 时，最可能就是这里 handleVector 是空，
+        // 或所有 collection 里全是 null —— 据此能判断丢点在 JM→TM 还是 TM-Java→TM-C++。
+        for (const auto& collection : handleVector) {
+            int nonNullCount = 0;
+            for (const auto& handle : collection) {
+                if (handle) nonNullCount++;
+            }
+        }
+        if (!handleVector.empty()) {
+            // Use the first (highest priority) alternative
+            std::set<std::shared_ptr<KeyedStateHandle>> stateHandles;
+            for (const auto& collection : handleVector) {
+                for (const auto& handle : collection) {
+                    if (handle) {
+                        stateHandles.insert(handle);
+                    }
+                }
+                if (!stateHandles.empty()) {
+                    break;  // Use the highest priority alternative
+                }
+            }
+            if (!stateHandles.empty()) {
+                builder.setStateHandles(stateHandles);
+            } else {
+                INFO_RELEASE("[OS-CP-restore] operatorId=" << operatorIdStr
+                    << " handleVector non-empty but all collections empty/null → state will start from scratch");
+            }
+        } else {
+            INFO_RELEASE("[OS-CP-restore] operatorId=" << operatorIdStr
+                << " handleVector empty → JM didn't deliver any keyed state for this subtask");
+        }
+
+        return builder.build();
     } else if (backendType == "EmbeddedRocksDBStateBackend") {
         std::string operatorIdentifierText = UUID::randomUUID().ToString();
         return static_cast<AbstractKeyedStateBackend<K> *>(keyedStatedBackend<K>(keySerializer,
                                                                                  operatorIdentifierText,
-                                                                                 nullptr,
-                                                                                 0));
+                                                                                 nullptr));
     }
 #ifdef WITH_OMNISTATESTORE
     if (backendType == "EmbeddedOckStateBackend") {
@@ -193,7 +250,7 @@ AbstractKeyedStateBackend<K> *StreamTaskStateInitializerImpl::keyedStatedBackend
 }
 
 template <typename K>
-inline CheckpointableKeyedStateBackend<K> *StreamTaskStateInitializerImpl::keyedStatedBackend(TypeSerializer *keySerializer, std::string operatorIdentifierText, MetricGroup *metricGroup, double managedMemoryFraction)
+inline CheckpointableKeyedStateBackend<K> *StreamTaskStateInitializerImpl::keyedStatedBackend(TypeSerializer *keySerializer, std::string operatorIdentifierText, MetricGroup *metricGroup)
 {
     if (keySerializer == nullptr) {
         return nullptr;
@@ -218,7 +275,10 @@ inline CheckpointableKeyedStateBackend<K> *StreamTaskStateInitializerImpl::keyed
         new BackendRestorerProcedure<CheckpointableKeyedStateBackend<K> *, std::shared_ptr<KeyedStateHandle>>(
             [this, operatorIdentifierText, keyGroupRange, keySerializer, taskInfo](std::set<std::shared_ptr<KeyedStateHandle>> stateHandles,
                                                                                    int alternativeIdx) {
-                auto rocksdbStateBackend = dynamic_cast<RocksDBStateBackend*>(this->stateBackend);
+                auto rocksdbStateBackend = dynamic_cast<EmbeddedRocksDBStateBackend*>(this->stateBackend);
+                if (rocksdbStateBackend == nullptr) {
+                    THROW_RUNTIME_ERROR("stateBackend is not EmbeddedRocksDBStateBackend.")
+                }
                 return reinterpret_cast<CheckpointableKeyedStateBackend<K> *>(
                     rocksdbStateBackend->template createKeyedStateBackend<K>(
                         env,

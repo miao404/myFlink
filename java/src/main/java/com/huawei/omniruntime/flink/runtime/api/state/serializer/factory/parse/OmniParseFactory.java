@@ -1,9 +1,11 @@
 package com.huawei.omniruntime.flink.runtime.api.state.serializer.factory.parse;
 
+import com.esotericsoftware.minlog.Log;
 import com.huawei.omniruntime.flink.runtime.api.state.serializer.consts.SC;
 import com.huawei.omniruntime.flink.runtime.api.state.serializer.consts.enums.OmniSerializerType;
 import com.huawei.omniruntime.flink.runtime.api.state.serializer.model.info.OmniNativeSerializerJsonInfo;
 import com.huawei.omniruntime.flink.runtime.api.state.serializer.model.info.OmniSerializerJsonInfo;
+import com.huawei.omniruntime.flink.runtime.api.state.serializer.model.info.type.TimerTypeInfo;
 import com.huawei.omniruntime.flink.runtime.metrics.exception.GeneralRuntimeException;
 import com.huawei.omniruntime.flink.utils.ReflectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -14,10 +16,13 @@ import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.api.common.typeutils.TypeSerializer;
 import org.apache.flink.api.common.typeutils.base.ListSerializer;
 import org.apache.flink.api.common.typeutils.base.MapSerializer;
+import org.apache.flink.api.java.tuple.Tuple;
+import org.apache.flink.api.java.typeutils.TupleTypeInfo;
 import org.apache.flink.api.java.typeutils.TypeExtractor;
 import org.apache.flink.api.java.typeutils.runtime.PojoSerializer;
 import org.apache.flink.api.java.typeutils.runtime.TupleSerializer;
 import org.apache.flink.runtime.state.VoidNamespaceTypeInfo;
+import org.apache.flink.streaming.api.operators.TimerSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,6 +67,7 @@ public abstract class OmniParseFactory {
                 case POJO:
                 case TUPLE:
                 case VOID_NAMESPACE:
+                case TIMER:
                     factory = new OmniParseValueFactory();
                     break;
                 case UNKNOW:
@@ -101,9 +107,34 @@ public abstract class OmniParseFactory {
         } else if (OmniSerializerType.POJO.equals(info.getSerializerType())) {
             return Types.POJO(info.getElementTypeClazz());
         } else if (OmniSerializerType.TUPLE.equals(info.getSerializerType())) {
+            // 优先用 C++ 端递归传过来的 fieldSerializers 重建带具体字段类型的 TupleTypeInfo；
+            // 走 TypeExtractor.createTypeInfo(Tuple2.class) 会因为 raw type 拿到 GenericType，
+            // 字段子序列化器与 C++ 端不匹配 → restore 出来的字节解析错位。
+            List<OmniNativeSerializerJsonInfo> fieldInfos = info.getFieldSerializers();
+            if (fieldInfos != null && !fieldInfos.isEmpty()) {
+                TypeInformation<?>[] fieldTypes = new TypeInformation[fieldInfos.size()];
+                for (int i = 0; i < fieldInfos.size(); i++) {
+                    fieldTypes[i] = buildTypeInformationBy(fieldInfos.get(i), depth + DEPTH_INTERVAL);
+                }
+                Class<?> tupleClass = info.getElementTypeClazz();
+                if (tupleClass == null) {
+                    // C++ 端漏传 element_type 时按 arity 兜底到 TupleN.class
+                    tupleClass = Tuple.getTupleClass(fieldTypes.length);
+                }
+                return new TupleTypeInfo(tupleClass, fieldTypes);
+            }
+            // 兼容老 JSON：无 fieldSerializers 时退回基于 raw class 的解析
             return TypeExtractor.createTypeInfo(info.getElementTypeClazz());
         } else if (OmniSerializerType.VOID_NAMESPACE.equals(info.getSerializerType())) {
             return new VoidNamespaceTypeInfo();
+        } else if (OmniSerializerType.TIMER.equals(info.getSerializerType())) {
+            OmniNativeSerializerJsonInfo keySerializerInfo = info.getKeySerializer();
+            OmniNativeSerializerJsonInfo namespaceSerializerInfo = info.getNamespaceSerializer();
+            TypeInformation<?> keyTypeInfo =  (null == keySerializerInfo)
+                    ? Types.STRING : buildTypeInformationBy(keySerializerInfo, depth + DEPTH_INTERVAL);
+            TypeInformation<?> namespaceTypeInfo =  (null == namespaceSerializerInfo)
+                    ? new VoidNamespaceTypeInfo() : buildTypeInformationBy(namespaceSerializerInfo, depth + DEPTH_INTERVAL);
+            return new TimerTypeInfo<>(keyTypeInfo, namespaceTypeInfo);
         }
 
         return null;
@@ -118,6 +149,7 @@ public abstract class OmniParseFactory {
         }
         OmniSerializerJsonInfo jsonInfo = new OmniSerializerJsonInfo();
         jsonInfo.setSerializerName(typeSerializer.getClass().getName());
+        jsonInfo.setSerializerInstanceClazz(typeSerializer.createInstance().getClass().getName());
         if (serializerType.isBasic()) {
             return jsonInfo;
         } else if (OmniSerializerType.LIST.equals(serializerType)) {
@@ -192,6 +224,23 @@ public abstract class OmniParseFactory {
             jsonInfo.setFieldSerializers(fieldSerializerInfoList);
             return jsonInfo;
         } else if (OmniSerializerType.VOID_NAMESPACE.equals(serializerType)) {
+            return jsonInfo;
+        } else if (OmniSerializerType.TIMER.equals(serializerType)) {
+            TimerSerializer<?, ?> timerSerializer = (TimerSerializer<?, ?>) typeSerializer;
+            OmniSerializerJsonInfo keySerializerJsonInfo = (null == timerSerializer.getKeySerializer())
+                    ? null
+                    : buildJsonInfoBy(
+                    timerSerializer.getKeySerializer(),
+                    OmniSerializerType.get(timerSerializer.getKeySerializer().getClass()),
+                    depth + DEPTH_INTERVAL);
+            OmniSerializerJsonInfo namespaceSerializerJsonInfo = (null == timerSerializer.getNamespaceSerializer())
+                    ? null
+                    : buildJsonInfoBy(
+                    timerSerializer.getNamespaceSerializer(),
+                    OmniSerializerType.get(timerSerializer.getNamespaceSerializer().getClass()),
+                    depth + DEPTH_INTERVAL);
+            jsonInfo.setKeySerializer(keySerializerJsonInfo);
+            jsonInfo.setNamespaceSerializer(namespaceSerializerJsonInfo);
             return jsonInfo;
         }
 

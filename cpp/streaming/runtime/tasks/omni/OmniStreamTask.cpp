@@ -49,6 +49,7 @@
 #include "runtime/state/LocalRecoveryDirectoryProviderImpl.h"
 #include "runtime/taskmanager/OmniTask.h"
 #include "partition/BufferWritingResultPartition.h"
+#include "streaming/runtime/tasks/ProcessingTimeServiceImpl.h"
 
 namespace omnistream {
 
@@ -81,12 +82,18 @@ OmniStreamTask::OmniStreamTask(std::shared_ptr<RuntimeEnvironmentV2> &env,
     taskName_ = taskConfiguration_.getTaskName();
     LOG("begin>>>>"  << taskName_);
     recordWriter_ = createRecordWriterDelegate(taskConfiguration_, env_);
-    systemTimerService = make_shared<SystemProcessingTimeService>();
+
+    // The internal TimerService used to define the current processing time (default = System.currentTimeMillis()),
+    // and register timers for tasks to be executed in the future.
+    timerService = std::make_shared<SystemProcessingTimeService>();
+    // In contrast to timerService, we should not register any user timers here. It should be used only for system level timers.
+    systemTimerService = std::make_shared<SystemProcessingTimeService>();
+
     // SubtaskCheckpointCoordinatorImpl initialization
     if (taskConfiguration_.getStateBackend() == "HashMapStateBackend") {
         stateBackend = new HashMapStateBackend();
     } else {
-        stateBackend = new RocksDBStateBackend(taskConfiguration_);
+        stateBackend = new EmbeddedRocksDBStateBackend(taskConfiguration_);
     }
     checkpointStorage = createCheckpointStorage(stateBackend);
     std::shared_ptr<CheckpointStorageAccess> checkpointStorageAccess = checkpointStorage->createCheckpointStorage(taskConfiguration_.getTmpWorkingDirectory());
@@ -228,7 +235,9 @@ OmniStreamTask::OmniStreamTask(std::shared_ptr<RuntimeEnvironmentV2> &env,
                 return;
             }
             auto reader = env_->getTaskStateManager()->getSequentialChannelStateReader();
+            INFO_RELEASE("restoreGates before readOutputData, task=" << taskName_);
             reader->readOutputData(env_->getAllWriters(), false);
+            INFO_RELEASE("restoreGates after readOutputData, task=" << taskName_);
 
             std::vector<std::shared_ptr<InputGate>> inputGateVec;
             inputGateVec.reserve(indexedInputGates.size());
@@ -238,9 +247,9 @@ OmniStreamTask::OmniStreamTask(std::shared_ptr<RuntimeEnvironmentV2> &env,
 
             reader->readInputData(inputGateVec);
 
-            LOG("restoreGates before recovery mailbox loop");
+            INFO_RELEASE("restoreGates before recovery mailbox loop");
             mailboxProcessor_->runMailboxLoop();
-            LOG("restoreGates after recovery mailbox loop");
+            INFO_RELEASE("restoreGates after recovery mailbox loop");
 
             for (const auto& inputGate : inputGateVec) {
                 auto recoveredFlags = inputGate->getStateConsumedFuture1();
@@ -260,7 +269,7 @@ OmniStreamTask::OmniStreamTask(std::shared_ptr<RuntimeEnvironmentV2> &env,
                 }
 
                 INFO_RELEASE("restoreGates requestPartitions directly after recovery loop");
-                inputGate->RequestPartitions(taskType);
+                inputGate->RequestPartitions();
             }
 
             INFO_RELEASE("restoreGates complete!");
@@ -348,13 +357,12 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
             return;
     }
     std::shared_ptr<CompletableFuture> resumeFuture;
-    // if (!recordWriter_->isAvailable()) {
-    //     resumeFuture = recordWriter_->GetAvailableFuture();
-    //     INFO_RELEASE("recordWriter is not available, wait for it")
-    // } else
-    if (!inputProcessor_->isAvailable()) {
+    if (!recordWriter_->isAvailable()) {
+        resumeFuture = recordWriter_->GetAvailableFuture();
+        INFO_RELEASE("recordWriter is not available, wait for it, task=" << taskName_);
+    } else if (!inputProcessor_->isAvailable()) {
         resumeFuture = inputProcessor_->GetAvailableFuture();
-        LOG("inputProcessor is not available, wait for it")
+        LOG("inputProcessor is not available, wait for it");
     } else {
         return;
     }
@@ -495,7 +503,8 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
         } else if (partitioner.getPartitionerName() == StreamPartitionerPOD::HASH) {
             int targetId = edge.getTargetId();
             int sourceId = edge.getSourceId();
-            std::unordered_map<int, StreamConfigPOD> configMap = env_->taskConfiguration().getChainedConfigMap();
+            auto taskInfo = env_->taskConfiguration();
+            std::unordered_map<int, StreamConfigPOD> configMap = taskInfo.getChainedConfigMap();
             auto description = configMap[sourceId].getOperatorDescription().getDescription();
             nlohmann::json config = nlohmann::json::parse(description);
             int32_t maxParallelism = env_->taskConfiguration().getMaxNumberOfSubtasks();
@@ -857,5 +866,41 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
             return true;
         }
         return false;
+    }
+
+
+    // Create processingTimeService which can defer the execution of op.onProcessingTime to mainThread(Mailbox)
+    ProcessingTimeService* OmniStreamTask::createProcessingTimeService() {
+        ProcessingTimeServiceImpl::ProcessingTimeCallbackWrapper processingTimeCallbackWrapper = [this](ProcessingTimeCallback *callback) {
+            return deferCallbackToMailBox(this->mainMailboxExecutor_, callback);
+        };
+        return new ProcessingTimeServiceImpl(this->timerService.get(), std::move(processingTimeCallbackWrapper));
+    }
+
+    ProcessingTimeCallback* OmniStreamTask::deferCallbackToMailBox(std::shared_ptr<MailboxExecutor> mailboxExecutor, ProcessingTimeCallback* callback) {
+        class DeferredCallback : public ProcessingTimeCallback {
+            public:
+                DeferredCallback(std::shared_ptr<MailboxExecutor> mailboxExecutor, ProcessingTimeCallback* callback)
+                    : mailboxExecutor_(mailboxExecutor), callback_(callback) {}
+
+                void OnProcessingTime(int64_t timestamp) override {
+                    auto mailboxRunnable = std::make_shared<VoidFunctionRunnable>(
+                        [this, timestamp]() {
+                            try {
+                                this->callback_->OnProcessingTime(timestamp);
+                            } catch (...) {
+                                // todo: realize handleAsyncException
+                                THROW_RUNTIME_ERROR("Caught exception while processing timer")
+                            }
+                        }
+                    );
+
+                    mailboxExecutor_->execute(mailboxRunnable, "Timer callback");
+                }
+            private:
+                std::shared_ptr<MailboxExecutor> mailboxExecutor_;
+                ProcessingTimeCallback* callback_;
+        };
+        return new DeferredCallback(mailboxExecutor, callback);
     }
 } // namespace omnistream

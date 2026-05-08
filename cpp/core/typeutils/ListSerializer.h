@@ -38,6 +38,8 @@ public:
         return BackendDataType::OBJECT_BK;
     }
 
+    TypeSerializer* getElementSerializer() const { return elementSerializer; }
+
     void setSubBufferReusable(bool bufferReusable_) override;
 
     Object* GetBuffer() override;
@@ -49,7 +51,7 @@ public:
     }
 
 private:
-    TypeSerializer* elementSerializer;
+    TypeSerializer* elementSerializer = nullptr;
 };
 
 #endif // OMNISTREAM_LISTSERIALIZER_H
