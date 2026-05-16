@@ -1,0 +1,46 @@
+{
+    "suite": "TableOperatorFuzz",
+    "case": "RankFuzz",
+    "description": "Fuzz tests for AppendOnlyTopNFunction and FastTop1Function with various partition and sort configurations",
+    "fuzz_function": "RankFuzz",
+    "parameters": [
+        {
+            "name": "fzd",
+            "type": "TableFuzzData"
+        },
+        {
+            "name": "loopCount",
+            "type": "uint16_t"
+        },
+        {
+            "name": "chooseRankFunc",
+            "type": "uint16_t"
+        }
+    ],
+    "test_points": [
+        {
+            "id": "rank_append_only_topn",
+            "description": "AppendOnlyTopNFunction with top-3 rank, single partition key",
+            "coverage": ["AppendOnlyTopNFunction", "BIGINT", "HashMap", "VectorBatch"]
+        },
+        {
+            "id": "rank_fast_top1",
+            "description": "FastTop1Function with top-1 rank, multiple sort keys",
+            "coverage": ["FastTop1Function", "BIGINT", "TIMESTAMP", "HashMap", "VectorBatch"]
+        }
+    ],
+    "data_distributions": [
+        "uniform_sort_values",
+        "ascending_order",
+        "descending_order",
+        "duplicate_sort_values",
+        "skewed_partitions"
+    ],
+    "boundary_conditions": [
+        "single_partition",
+        "single_row_per_partition",
+        "all_same_sort_value",
+        "max_int64_sort_value",
+        "min_int64_sort_value"
+    ]
+}

@@ -1,0 +1,48 @@
+{
+    "suite": "TableOperatorFuzz",
+    "case": "JoinFuzz",
+    "description": "Fuzz tests for StreamingJoinOperator covering InnerJoin and LeftOuterJoin types",
+    "fuzz_function": "JoinFuzz",
+    "parameters": [
+        {
+            "name": "fzd",
+            "type": "TableFuzzData"
+        },
+        {
+            "name": "loopCount",
+            "type": "uint16_t"
+        },
+        {
+            "name": "chooseJoinType",
+            "type": "uint16_t"
+        }
+    ],
+    "test_points": [
+        {
+            "id": "join_inner",
+            "description": "Inner join with BIGINT keys, matching left and right rows",
+            "coverage": ["InnerJoin", "BIGINT", "HashMap", "VectorBatch"]
+        },
+        {
+            "id": "join_left_outer",
+            "description": "Left outer join with BIGINT keys, unmatched left rows produce nulls",
+            "coverage": ["LeftOuterJoin", "BIGINT", "HashMap", "VectorBatch"]
+        }
+    ],
+    "data_distributions": [
+        "matching_keys",
+        "no_matching_keys",
+        "partial_match",
+        "skewed_left_heavy",
+        "skewed_right_heavy",
+        "one_to_many",
+        "many_to_many"
+    ],
+    "boundary_conditions": [
+        "empty_left_side",
+        "empty_right_side",
+        "single_row_each_side",
+        "all_keys_match",
+        "no_keys_match"
+    ]
+}

@@ -1,0 +1,46 @@
+{
+    "suite": "StreamingOperatorFuzz",
+    "case": "CoProcessFuzz",
+    "description": "Fuzz tests for KeyedCoProcessOperator covering config parsing and dual-input data construction",
+    "fuzz_function": "CoProcessFuzz",
+    "parameters": [
+        {
+            "name": "fzd",
+            "type": "StreamingFuzzData"
+        },
+        {
+            "name": "loopCount",
+            "type": "uint16_t"
+        },
+        {
+            "name": "chooseMode",
+            "type": "uint16_t"
+        }
+    ],
+    "test_points": [
+        {
+            "id": "co_process_config_parsing",
+            "description": "Validate KeyedCoProcessOperator configuration JSON parsing with varying key indices",
+            "coverage": ["KeyedCoProcessOperator", "configParsing", "BIGINT"]
+        },
+        {
+            "id": "co_process_dual_input",
+            "description": "Validate dual-input data construction with asymmetric schemas",
+            "coverage": ["KeyedCoProcessOperator", "dualInput", "BinaryRowData", "HashMap"]
+        }
+    ],
+    "data_distributions": [
+        "symmetric_inputs",
+        "asymmetric_inputs",
+        "matching_keys",
+        "disjoint_keys",
+        "interleaved_timestamps"
+    ],
+    "boundary_conditions": [
+        "empty_input1",
+        "empty_input2",
+        "single_row_each",
+        "mismatched_schemas",
+        "max_key_values"
+    ]
+}

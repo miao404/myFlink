@@ -1,0 +1,61 @@
+{
+    "suite": "TableOperatorFuzz",
+    "case": "AggregateFuzz",
+    "description": "Fuzz tests for GroupAggFunction covering SUM/COUNT/AVG/MAX/MIN with various data types and distributions",
+    "fuzz_function": "AggregateFuzz",
+    "parameters": [
+        {
+            "name": "fzd",
+            "type": "TableFuzzData"
+        },
+        {
+            "name": "loopCount",
+            "type": "uint16_t"
+        },
+        {
+            "name": "chooseAgg",
+            "type": "uint16_t"
+        }
+    ],
+    "test_points": [
+        {
+            "id": "agg_sum_bigint",
+            "description": "SUM aggregation with BIGINT type, multiple keys",
+            "coverage": ["SUM", "BIGINT", "HashMap"]
+        },
+        {
+            "id": "agg_count_bigint",
+            "description": "COUNT aggregation with BIGINT type",
+            "coverage": ["COUNT", "BIGINT", "HashMap"]
+        },
+        {
+            "id": "agg_avg_bigint",
+            "description": "AVG aggregation with BIGINT type, tracks sum and count",
+            "coverage": ["AVG", "BIGINT", "HashMap"]
+        },
+        {
+            "id": "agg_max_bigint",
+            "description": "MAX aggregation with BIGINT type",
+            "coverage": ["MAX", "BIGINT", "HashMap"]
+        },
+        {
+            "id": "agg_min_bigint",
+            "description": "MIN aggregation with BIGINT type",
+            "coverage": ["MIN", "BIGINT", "HashMap"]
+        }
+    ],
+    "data_distributions": [
+        "uniform_keys",
+        "skewed_keys",
+        "single_key",
+        "high_cardinality"
+    ],
+    "boundary_conditions": [
+        "zero_values",
+        "negative_values",
+        "max_int64",
+        "min_int64",
+        "single_row",
+        "empty_batch"
+    ]
+}

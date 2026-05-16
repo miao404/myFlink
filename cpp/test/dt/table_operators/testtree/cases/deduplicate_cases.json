@@ -1,0 +1,46 @@
+{
+    "suite": "TableOperatorFuzz",
+    "case": "DeduplicateFuzz",
+    "description": "Fuzz tests for RowTimeDeduplicateFunction covering keepLastRow and keepFirstRow modes",
+    "fuzz_function": "DeduplicateFuzz",
+    "parameters": [
+        {
+            "name": "fzd",
+            "type": "TableFuzzData"
+        },
+        {
+            "name": "loopCount",
+            "type": "uint16_t"
+        },
+        {
+            "name": "chooseDedupMode",
+            "type": "uint16_t"
+        }
+    ],
+    "test_points": [
+        {
+            "id": "dedup_keep_last",
+            "description": "RowTimeDeduplicateFunction keepLastRow mode with BIGINT columns",
+            "coverage": ["keepLastRow", "BIGINT", "HashMap", "VectorBatch"]
+        },
+        {
+            "id": "dedup_keep_first",
+            "description": "RowTimeDeduplicateFunction keepFirstRow mode with BIGINT columns",
+            "coverage": ["keepFirstRow", "BIGINT", "HashMap", "VectorBatch"]
+        }
+    ],
+    "data_distributions": [
+        "duplicate_keys",
+        "unique_keys",
+        "ascending_rowtime",
+        "random_rowtime",
+        "same_rowtime_different_keys"
+    ],
+    "boundary_conditions": [
+        "single_row",
+        "all_same_key",
+        "all_same_rowtime",
+        "max_timestamp",
+        "zero_timestamp"
+    ]
+}

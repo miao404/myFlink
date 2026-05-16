@@ -1,0 +1,51 @@
+{
+    "suite": "StreamingOperatorFuzz",
+    "case": "KeyedProcessFuzz",
+    "description": "Fuzz tests for KeyedProcessOperator with GroupAggFunction, MockUserFunction, and multiple-key configurations",
+    "fuzz_function": "KeyedProcessFuzz",
+    "parameters": [
+        {
+            "name": "fzd",
+            "type": "StreamingFuzzData"
+        },
+        {
+            "name": "loopCount",
+            "type": "uint16_t"
+        },
+        {
+            "name": "chooseMode",
+            "type": "uint16_t"
+        }
+    ],
+    "test_points": [
+        {
+            "id": "keyed_process_group_agg",
+            "description": "KeyedProcessOperator wrapping GroupAggFunction with SUM aggregation",
+            "coverage": ["KeyedProcessOperator", "GroupAggFunction", "SUM", "BIGINT", "HashMap"]
+        },
+        {
+            "id": "keyed_process_mock_udf",
+            "description": "KeyedProcessOperator wrapping mock user-defined function",
+            "coverage": ["KeyedProcessOperator", "MockUDF", "processElement", "HashMap"]
+        },
+        {
+            "id": "keyed_process_multi_key",
+            "description": "KeyedProcessOperator with multiple grouping keys and MAX aggregation",
+            "coverage": ["KeyedProcessOperator", "GroupAggFunction", "MAX", "BIGINT", "multipleKeys"]
+        }
+    ],
+    "data_distributions": [
+        "uniform_keys",
+        "skewed_keys",
+        "single_key",
+        "high_cardinality",
+        "sequential_values"
+    ],
+    "boundary_conditions": [
+        "single_element",
+        "zero_key_value",
+        "negative_values",
+        "max_int64",
+        "rapid_key_changes"
+    ]
+}
