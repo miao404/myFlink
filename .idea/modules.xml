@@ -3,6 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/myFlink.iml" filepath="$PROJECT_DIR$/.idea/myFlink.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/myFlink2.iml" filepath="$PROJECT_DIR$/.idea/myFlink2.iml" />
     </modules>
   </component>
 </project>

@@ -26,8 +26,14 @@
     </expand>
     <select />
   </component>
+  <component name="CMakePresetLoader"><![CDATA[{
+  "useNewFormat": true
+}]]></component>
   <component name="CMakeProjectFlavorService">
     <option name="flavorId" value="CMakePlainProjectFlavor" />
+  </component>
+  <component name="CMakeReloadState">
+    <option name="reloaded" value="true" />
   </component>
   <component name="CMakeSettings">
     <configurations>
@@ -35,7 +41,10 @@
     </configurations>
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="ed2e6d7e-08a9-41a3-9da6-cddd609dff48" name="Default Changelist" comment="update0327" />
+    <list default="true" id="ed2e6d7e-08a9-41a3-9da6-cddd609dff48" name="Default Changelist" comment="update0508">
+      <change beforePath="$PROJECT_DIR$/.idea/editor.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/editor.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -72,6 +81,12 @@
       </MavenGeneralSettings>
     </option>
   </component>
+  <component name="ProjectApplicationVersion">
+    <option name="ide" value="CLion" />
+    <option name="majorVersion" value="2025" />
+    <option name="minorVersion" value="2.4" />
+    <option name="productBranch" value="Classic" />
+  </component>
   <component name="ProjectColorInfo">{
   &quot;associatedIndex&quot;: 0
 }</component>
@@ -87,6 +102,7 @@
     "RunOnceActivity.cidr.known.project.marker": "true",
     "RunOnceActivity.git.unshallow": "true",
     "RunOnceActivity.readMode.enableVisualFormatting": "true",
+    "RunOnceActivity.west.config.association.type.startup.service": "true",
     "cf.first.check.clang-format": "false",
     "cidr.known.project.marker": "true",
     "git-widget-placeholder": "main",
@@ -100,6 +116,13 @@
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
+  <component name="RunManager">
+    <configuration default="true" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" PASS_PARENT_ENVS_2="true">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+  </component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
@@ -113,6 +136,9 @@
       <workItem from="1773921323757" duration="74000" />
       <workItem from="1774598380875" duration="173000" />
       <workItem from="1774598563484" duration="1447000" />
+      <workItem from="1778208706708" duration="1262000" />
+      <workItem from="1779095384077" duration="73000" />
+      <workItem from="1779095471489" duration="55000" />
     </task>
     <task id="LOCAL-00001" summary="update">
       <created>1773064574465</created>
@@ -121,7 +147,15 @@
       <option name="project" value="LOCAL" />
       <updated>1773064574465</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL-00002" summary="update0508">
+      <option name="closed" value="true" />
+      <created>1778208813565</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1778208813565</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="TypeScriptGeneratedFilesManager">
@@ -147,6 +181,7 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="update" />
     <MESSAGE value="update0327" />
-    <option name="LAST_COMMIT_MESSAGE" value="update0327" />
+    <MESSAGE value="update0508" />
+    <option name="LAST_COMMIT_MESSAGE" value="update0508" />
   </component>
 </project>

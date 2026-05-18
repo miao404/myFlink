@@ -2,8 +2,6 @@
 *.d
 build
 cmake_build_*/
-conf/
-include/
 # Compiled Object files
 *.slo
 *.lo
