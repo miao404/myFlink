@@ -1,51 +1,35 @@
 {
-    "suite": "StreamingOperatorFuzz",
-    "case": "KeyedProcessFuzz",
-    "description": "Fuzz tests for KeyedProcessOperator with GroupAggFunction, MockUserFunction, and multiple-key configurations",
-    "fuzz_function": "KeyedProcessFuzz",
-    "parameters": [
+  "METADATA": {
+    "description": "MyFlink DT case",
+    "version": "1.0.0",
+    "author": "",
+    "date": "2026-05-22"
+  },
+  "DATA": [
+    {
+      "KeyedProcessFuzzData": {
+        "keyValue": 100,
+        "value1": 50,
+        "value2": 25,
+        "loopCount": 100,
+        "functionType": 0,
+        "rowKind": 0,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 1
+    }
+  ],
+  "TEST": [
+    {
+      "SUITE_NAME": "suite-01",
+      "CASES": [
         {
-            "name": "fzd",
-            "type": "StreamingFuzzData"
-        },
-        {
-            "name": "loopCount",
-            "type": "uint16_t"
-        },
-        {
-            "name": "chooseMode",
-            "type": "uint16_t"
+          "id": "case1",
+          "apiName": "GlobalKeyedProcessFuzz($KeyedProcessFuzzData, $filterExpr, $chooseFunc)",
+          "exeMode": "fuzz"
         }
-    ],
-    "test_points": [
-        {
-            "id": "keyed_process_group_agg",
-            "description": "KeyedProcessOperator wrapping GroupAggFunction with SUM aggregation",
-            "coverage": ["KeyedProcessOperator", "GroupAggFunction", "SUM", "BIGINT", "HashMap"]
-        },
-        {
-            "id": "keyed_process_mock_udf",
-            "description": "KeyedProcessOperator wrapping mock user-defined function",
-            "coverage": ["KeyedProcessOperator", "MockUDF", "processElement", "HashMap"]
-        },
-        {
-            "id": "keyed_process_multi_key",
-            "description": "KeyedProcessOperator with multiple grouping keys and MAX aggregation",
-            "coverage": ["KeyedProcessOperator", "GroupAggFunction", "MAX", "BIGINT", "multipleKeys"]
-        }
-    ],
-    "data_distributions": [
-        "uniform_keys",
-        "skewed_keys",
-        "single_key",
-        "high_cardinality",
-        "sequential_values"
-    ],
-    "boundary_conditions": [
-        "single_element",
-        "zero_key_value",
-        "negative_values",
-        "max_int64",
-        "rapid_key_changes"
-    ]
+      ]
+    }
+  ]
 }

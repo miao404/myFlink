@@ -1,128 +1,105 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
- * Description: Fuzz test for SinkOperator covering VectorBatch-based output
- *              with various column types and row counts.
- *              Reference UT: SinkOperatorTest.cpp
- */
-
-#include "table_fuzz_wrapper.h"
-#include "dt_fuzz_data.h"
-
+#include "fuzz_wrapper.h"
+#include "streaming/runtime/streamrecord/StreamRecord.h"
+#include "streaming/api/operators/SinkOperator.h"
+#include "test/core/operators/OutputTest.h"
+#include "table/data/RowKind.h"
 #include <nlohmann/json.hpp>
-#include <vector>
 #include <iostream>
 
-#include "streaming/api/operators/SinkOperator.h"
-#include "streaming/runtime/streamrecord/StreamRecord.h"
-#include "table/data/binary/BinaryRowData.h"
-#include "table/data/vectorbatch/VectorBatch.h"
-#include "core/operators/OutputTest.h"
-#include <test/util/test_util.h>
-
+using namespace omnistream;
 using json = nlohmann::json;
 
-static void TestSinkProcessElement(const SinkFuzzData &fzd, uint16_t loopCount)
+omnistream::VectorBatch* createSinkTestVectorBatch(int rowCount, int64_t value1, int64_t value2, int32_t rowKindVal)
 {
-    std::cout << "SinkFuzz: processElement with BinaryRowData" << std::endl;
+    omnistream::VectorBatch* vb = new omnistream::VectorBatch(rowCount);
+    auto col0 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col1 = new omniruntime::vec::Vector<int64_t>(rowCount);
 
-    std::string sinkDescription = R"({"outputfile":"/tmp/flink_fuzz_output.txt"})";
-    auto obj = json::parse(sinkDescription);
-    auto op = SinkOperator(obj);
-    op.open();
+    RowKind rk = RowKind::INSERT;
+    if (rowKindVal == 1) rk = RowKind::UPDATE_AFTER;
+    else if (rowKindVal == 2) rk = RowKind::UPDATE_BEFORE;
+    else if (rowKindVal == 3) rk = RowKind::DELETE;
 
-    uint16_t count = (loopCount % 20) + 1;
-    for (uint16_t i = 0; i < count; ++i) {
-        BinaryRowData *rowData = BinaryRowData::createBinaryRowDataWithMem(2);
-        rowData->setLong(0, fzd.longCol + static_cast<int64_t>(i));
-        rowData->setLong(1, fzd.longCol2 + static_cast<int64_t>(i) * 10);
+    for (int i = 0; i < rowCount; i++) {
+        col0->SetValue(i, value1 + i);
+        col1->SetValue(i, value2 + i);
+        vb->setRowKind(i, rk);
+    }
 
-        StreamRecord *record = new StreamRecord(rowData);
-        op.processElement(record);
+    vb->Append(col0);
+    vb->Append(col1);
+
+    return vb;
+}
+
+static const std::string SINK_DESC_STR = R"JSON({"name":"blackHole sink","description":{"inputTypes":["BIGINT","BIGINT"]},"id":"org.apache.flink.table.runtime.operators.sink.SinkOperator"})JSON";
+
+void TestSinkBasic(const SinkFuzzData& fzd)
+{
+    std::cout << "TestSinkBasic" << std::endl;
+
+    json parsedJson = json::parse(SINK_DESC_STR);
+    SinkOperator *sinkOp = new SinkOperator(parsedJson);
+    sinkOp->open();
+
+    omnistream::VectorBatch* vb = createSinkTestVectorBatch(fzd.loopCount, fzd.intValue, fzd.longValue, fzd.rowKind);
+    StreamRecord *record = new StreamRecord(vb);
+    sinkOp->processBatch(record);
+
+    delete record;
+    delete sinkOp;
+}
+
+void TestSinkWithRowKind(const SinkFuzzData& fzd)
+{
+    std::cout << "TestSinkWithRowKind" << std::endl;
+
+    json parsedJson = json::parse(SINK_DESC_STR);
+    SinkOperator *sinkOp = new SinkOperator(parsedJson);
+    sinkOp->open();
+
+    for (int rk = 0; rk < 4; rk++) {
+        omnistream::VectorBatch* vb = createSinkTestVectorBatch(fzd.loopCount, fzd.intValue, fzd.longValue, rk);
+        StreamRecord *record = new StreamRecord(vb);
+        sinkOp->processBatch(record);
         delete record;
     }
+
+    delete sinkOp;
 }
 
-static void TestSinkProcessBatch(const SinkFuzzData &fzd, uint16_t loopCount)
+void TestSinkMultiBatch(const SinkFuzzData& fzd)
 {
-    std::cout << "SinkFuzz: processBatch with VectorBatch" << std::endl;
+    std::cout << "TestSinkMultiBatch" << std::endl;
 
-    std::string sinkDescription = R"({"outputfile":"/tmp/flink_fuzz_output.txt"})";
-    auto obj = json::parse(sinkDescription);
-    auto op = SinkOperator(obj);
-    op.open();
+    json parsedJson = json::parse(SINK_DESC_STR);
+    SinkOperator *sinkOp = new SinkOperator(parsedJson);
+    sinkOp->open();
 
-    int rowCnt = (loopCount % 20) + 2;
-    auto *vbatch = new omnistream::VectorBatch(rowCnt);
-
-    std::vector<int64_t> col0(rowCnt);
-    std::vector<int64_t> col1(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        col0[i] = fzd.longCol + static_cast<int64_t>(i) * 100;
-        col1[i] = fzd.longCol2 + static_cast<int64_t>(i) * 50;
-    }
-    vbatch->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-    vbatch->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col1.data()));
-
-    for (int i = 0; i < rowCnt; ++i) {
-        vbatch->setRowKind(i, RowKind::INSERT);
+    for (int batch = 0; batch < 5; batch++) {
+        omnistream::VectorBatch* vb = createSinkTestVectorBatch(fzd.loopCount, fzd.intValue + batch * 100, fzd.longValue, fzd.rowKind);
+        StreamRecord *record = new StreamRecord(vb);
+        sinkOp->processBatch(record);
+        delete record;
     }
 
-    StreamRecord *record = new StreamRecord(vbatch);
-    op.processBatch(record);
-    delete record;
+    delete sinkOp;
 }
 
-static void TestSinkWithRowKindVariations(const SinkFuzzData &fzd, uint16_t loopCount)
+int GlobalSinkFuzz(struct SinkFuzzData fzd, std::string filterExpr, int32_t chooseFunc)
 {
-    std::cout << "SinkFuzz: VectorBatch with mixed RowKind" << std::endl;
+    std::cout << "SinkFuzz: chooseFunc=" << chooseFunc
+              << ", loopCount=" << fzd.loopCount << std::endl;
 
-    std::string sinkDescription = R"({"outputfile":"/tmp/flink_fuzz_output.txt"})";
-    auto obj = json::parse(sinkDescription);
-    auto op = SinkOperator(obj);
-    op.open();
-
-    int rowCnt = (loopCount % 15) + 3;
-    auto *vbatch = new omnistream::VectorBatch(rowCnt);
-
-    std::vector<int64_t> col0(rowCnt);
-    std::vector<int64_t> col1(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        col0[i] = fzd.longCol + static_cast<int64_t>(i);
-        col1[i] = fzd.longCol2 - static_cast<int64_t>(i) * 3;
-    }
-    vbatch->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-    vbatch->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col1.data()));
-
-    RowKind kinds[] = {RowKind::INSERT, RowKind::UPDATE_BEFORE, RowKind::UPDATE_AFTER, RowKind::DELETE};
-    for (int i = 0; i < rowCnt; ++i) {
-        vbatch->setRowKind(i, kinds[i % 4]);
-    }
-
-    StreamRecord *record = new StreamRecord(vbatch);
-    op.processBatch(record);
-    op.finish();
-    delete record;
-}
-
-int SinkFuzz(struct SinkFuzzData fzd, uint16_t loopCount, uint16_t chooseMode)
-{
-    try {
-        switch (chooseMode % 3) {
-            case 0:
-                TestSinkProcessElement(fzd, loopCount);
-                break;
-            case 1:
-                TestSinkProcessBatch(fzd, loopCount);
-                break;
-            case 2:
-                TestSinkWithRowKindVariations(fzd, loopCount);
-                break;
-            default:
-                break;
-        }
-    } catch (const std::exception &e) {
-        std::cerr << "SinkFuzz exception: " << e.what() << std::endl;
-        return -1;
+    switch (chooseFunc) {
+        case 1: TestSinkBasic(fzd); break;
+        case 2: TestSinkWithRowKind(fzd); break;
+        case 3: TestSinkMultiBatch(fzd); break;
+        default:
+            TestSinkBasic(fzd);
+            TestSinkWithRowKind(fzd);
+            TestSinkMultiBatch(fzd);
+            break;
     }
     return 0;
 }

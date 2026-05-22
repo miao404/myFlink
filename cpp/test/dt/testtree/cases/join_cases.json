@@ -1,48 +1,37 @@
 {
-    "suite": "TableOperatorFuzz",
-    "case": "JoinFuzz",
-    "description": "Fuzz tests for StreamingJoinOperator covering InnerJoin and LeftOuterJoin types",
-    "fuzz_function": "JoinFuzz",
-    "parameters": [
+  "METADATA": {
+    "description": "MyFlink DT case",
+    "version": "1.0.0",
+    "author": "",
+    "date": "2026-05-22"
+  },
+  "DATA": [
+    {
+      "JoinFuzzData": {
+        "leftKeyValue": 1,
+        "rightKeyValue": 1,
+        "windowEndTime": 10000,
+        "leftValue": 100,
+        "rightValue": 200,
+        "loopCount": 50,
+        "joinType": 0,
+        "rowKind": 0,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 1
+    }
+  ],
+  "TEST": [
+    {
+      "SUITE_NAME": "suite-01",
+      "CASES": [
         {
-            "name": "fzd",
-            "type": "TableFuzzData"
-        },
-        {
-            "name": "loopCount",
-            "type": "uint16_t"
-        },
-        {
-            "name": "chooseJoinType",
-            "type": "uint16_t"
+          "id": "case1",
+          "apiName": "GlobalJoinFuzz($JoinFuzzData, $filterExpr, $chooseFunc)",
+          "exeMode": "fuzz"
         }
-    ],
-    "test_points": [
-        {
-            "id": "join_inner",
-            "description": "Inner join with BIGINT keys, matching left and right rows",
-            "coverage": ["InnerJoin", "BIGINT", "HashMap", "VectorBatch"]
-        },
-        {
-            "id": "join_left_outer",
-            "description": "Left outer join with BIGINT keys, unmatched left rows produce nulls",
-            "coverage": ["LeftOuterJoin", "BIGINT", "HashMap", "VectorBatch"]
-        }
-    ],
-    "data_distributions": [
-        "matching_keys",
-        "no_matching_keys",
-        "partial_match",
-        "skewed_left_heavy",
-        "skewed_right_heavy",
-        "one_to_many",
-        "many_to_many"
-    ],
-    "boundary_conditions": [
-        "empty_left_side",
-        "empty_right_side",
-        "single_row_each_side",
-        "all_keys_match",
-        "no_keys_match"
-    ]
+      ]
+    }
+  ]
 }

@@ -1,151 +1,108 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
- * Description: Fuzz test for StreamExpand operator covering multi-projection
- *              expansion with BIGINT columns and various row counts.
- *              Reference UT: StreamExpandTest.cpp
- */
-
-#include "streaming_fuzz_wrapper.h"
-#include "dt_fuzz_data.h"
-
+#include "fuzz_wrapper.h"
+#include "streaming/runtime/streamrecord/StreamRecord.h"
+#include "table/runtime/operators/expand/StreamExpand.h"
+#include "test/core/operators/OutputTest.h"
+#include "table/data/RowKind.h"
 #include <nlohmann/json.hpp>
-#include <vector>
 #include <iostream>
 
-#include "table/runtime/operators/expand/StreamExpand.h"
-#include "streaming/runtime/streamrecord/StreamRecord.h"
-#include "table/data/vectorbatch/VectorBatch.h"
-#include "core/operators/OutputTest.h"
-#include <test/util/test_util.h>
-
+using namespace omnistream;
 using json = nlohmann::json;
 
-static const std::string expandDesc2Projections = R"DELIM({
-    "inputTypes": ["BIGINT", "BIGINT", "BIGINT"],
-    "outputTypes": ["BIGINT", "BIGINT", "BIGINT", "BIGINT"],
-    "projects": [[0, 1, "null", "$e"], [0, "null", 2, "$e"]]
-})DELIM";
-
-static const std::string expandDesc3Projections = R"DELIM({
-    "inputTypes": ["BIGINT", "BIGINT", "BIGINT"],
-    "outputTypes": ["BIGINT", "BIGINT", "BIGINT", "BIGINT", "BIGINT"],
-    "projects": [[0, 1, "null", "null", "$e"], [0, "null", 2, "null", "$e"], [0, "null", "null", 2, "$e"]]
-})DELIM";
-
-static void TestExpand2Projections(const ExpandFuzzData &fzd, uint16_t loopCount)
+omnistream::VectorBatch* createExpandTestVectorBatch(int rowCount, int64_t value1, int64_t value2, int64_t value3)
 {
-    std::cout << "ExpandFuzz: 2 projections" << std::endl;
+    omnistream::VectorBatch* vb = new omnistream::VectorBatch(rowCount);
+    auto col0 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col1 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col2 = new omniruntime::vec::Vector<int64_t>(rowCount);
 
-    json parsedJson = json::parse(expandDesc2Projections);
-    OutputTestVectorBatch *output = new OutputTestVectorBatch();
-    StreamExpand streamExpandOp(parsedJson, output);
-    streamExpandOp.open();
-
-    int rowCnt = (loopCount % 20) + 2;
-    omnistream::VectorBatch *vb = new omnistream::VectorBatch(rowCnt);
-
-    std::vector<int64_t> col0(rowCnt);
-    std::vector<int64_t> col1(rowCnt);
-    std::vector<int64_t> col2(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        col0[i] = fzd.col0 + static_cast<int64_t>(i);
-        col1[i] = fzd.col1 + static_cast<int64_t>(i) * 2;
-        col2[i] = fzd.col2 + static_cast<int64_t>(i) * 3;
+    for (int i = 0; i < rowCount; i++) {
+        col0->SetValue(i, value1 + i);
+        col1->SetValue(i, value2 + i);
+        col2->SetValue(i, value3 + i);
+        vb->setRowKind(i, RowKind::INSERT);
     }
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col1.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col2.data()));
 
-    StreamRecord *record = new StreamRecord(vb);
-    streamExpandOp.processBatch(record);
+    vb->Append(col0);
+    vb->Append(col1);
+    vb->Append(col2);
 
-    delete output;
+    return vb;
 }
 
-static void TestExpand3Projections(const ExpandFuzzData &fzd, uint16_t loopCount)
+static const std::string EXPAND_DESC_2 = R"JSON({"name":"Expand(projects=[{col0, col1, 0}, {col0, col2, 1}])","description":{"originDescription":null,"inputTypes":["BIGINT","BIGINT","BIGINT"],"outputTypes":["BIGINT","BIGINT","BIGINT"],"projects":[[{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":0},{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":1},{"exprType":"LITERAL","dataType":9,"value":"0"}],[{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":0},{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":2},{"exprType":"LITERAL","dataType":9,"value":"1"}]]},"id":"StreamExecExpand"})JSON";
+
+static const std::string EXPAND_DESC_3 = R"JSON({"name":"Expand(projects=[{col0, col1, 0}, {col0, col2, 1}, {col0, null, 2}])","description":{"originDescription":null,"inputTypes":["BIGINT","BIGINT","BIGINT"],"outputTypes":["BIGINT","BIGINT","BIGINT"],"projects":[[{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":0},{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":1},{"exprType":"LITERAL","dataType":9,"value":"0"}],[{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":0},{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":2},{"exprType":"LITERAL","dataType":9,"value":"1"}],[{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":0},{"exprType":"LITERAL","dataType":0,"value":null},{"exprType":"LITERAL","dataType":9,"value":"2"}]]},"id":"StreamExecExpand"})JSON";
+
+void TestExpandBasic(const ExpandFuzzData& fzd)
 {
-    std::cout << "ExpandFuzz: 3 projections" << std::endl;
+    std::cout << "TestExpandBasic" << std::endl;
 
-    json parsedJson = json::parse(expandDesc3Projections);
-    OutputTestVectorBatch *output = new OutputTestVectorBatch();
-    StreamExpand streamExpandOp(parsedJson, output);
-    streamExpandOp.open();
+    json parsedJson = json::parse(EXPAND_DESC_2);
 
-    int rowCnt = (loopCount % 15) + 3;
-    omnistream::VectorBatch *vb = new omnistream::VectorBatch(rowCnt);
+    OutputTestVectorBatch* output = new OutputTestVectorBatch();
+    StreamExpand expandOp(parsedJson, output);
+    expandOp.open();
 
-    std::vector<int64_t> col0(rowCnt);
-    std::vector<int64_t> col1(rowCnt);
-    std::vector<int64_t> col2(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        col0[i] = fzd.col0 * static_cast<int64_t>(i + 1);
-        col1[i] = fzd.col1 + static_cast<int64_t>(i * 5);
-        col2[i] = fzd.col2 - static_cast<int64_t>(i * 2);
-    }
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col1.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col2.data()));
-
+    omnistream::VectorBatch* vb = createExpandTestVectorBatch(fzd.loopCount, fzd.value1, fzd.value2, fzd.value3);
     StreamRecord *record = new StreamRecord(vb);
-    streamExpandOp.processBatch(record);
+    expandOp.processBatch(record);
 
-    delete output;
+    delete record;
 }
 
-static void TestExpandWithRowKind(const ExpandFuzzData &fzd, uint16_t loopCount)
+void TestExpandThreeProjections(const ExpandFuzzData& fzd)
 {
-    std::cout << "ExpandFuzz: With RowKind variations" << std::endl;
+    std::cout << "TestExpandThreeProjections" << std::endl;
 
-    json parsedJson = json::parse(expandDesc2Projections);
-    OutputTestVectorBatch *output = new OutputTestVectorBatch();
-    StreamExpand streamExpandOp(parsedJson, output);
-    streamExpandOp.open();
+    json parsedJson = json::parse(EXPAND_DESC_3);
 
-    int rowCnt = (loopCount % 10) + 4;
-    omnistream::VectorBatch *vb = new omnistream::VectorBatch(rowCnt);
+    OutputTestVectorBatch* output = new OutputTestVectorBatch();
+    StreamExpand expandOp(parsedJson, output);
+    expandOp.open();
 
-    std::vector<int64_t> col0(rowCnt);
-    std::vector<int64_t> col1(rowCnt);
-    std::vector<int64_t> col2(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        col0[i] = fzd.col0 + static_cast<int64_t>(i) * 10;
-        col1[i] = fzd.col1 + static_cast<int64_t>(i) * 20;
-        col2[i] = fzd.col2 + static_cast<int64_t>(i) * 30;
-    }
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col1.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col2.data()));
-
-    RowKind kinds[] = {RowKind::INSERT, RowKind::UPDATE_AFTER, RowKind::INSERT, RowKind::DELETE};
-    for (int i = 0; i < rowCnt; ++i) {
-        vb->setRowKind(i, kinds[i % 4]);
-    }
-
+    omnistream::VectorBatch* vb = createExpandTestVectorBatch(fzd.loopCount, fzd.value1, fzd.value2, fzd.value3);
     StreamRecord *record = new StreamRecord(vb);
-    streamExpandOp.processBatch(record);
+    expandOp.processBatch(record);
 
-    delete output;
+    delete record;
 }
 
-int ExpandFuzz(struct ExpandFuzzData fzd, uint16_t loopCount, uint16_t chooseMode)
+void TestExpandWithRowKind(const ExpandFuzzData& fzd)
 {
-    try {
-        switch (chooseMode % 3) {
-            case 0:
-                TestExpand2Projections(fzd, loopCount);
-                break;
-            case 1:
-                TestExpand3Projections(fzd, loopCount);
-                break;
-            case 2:
-                TestExpandWithRowKind(fzd, loopCount);
-                break;
-            default:
-                break;
-        }
-    } catch (const std::exception &e) {
-        std::cerr << "ExpandFuzz exception: " << e.what() << std::endl;
-        return -1;
+    std::cout << "TestExpandWithRowKind" << std::endl;
+
+    json parsedJson = json::parse(EXPAND_DESC_2);
+
+    OutputTestVectorBatch* output = new OutputTestVectorBatch();
+    StreamExpand expandOp(parsedJson, output);
+    expandOp.open();
+
+    omnistream::VectorBatch* vb = createExpandTestVectorBatch(fzd.loopCount, fzd.value1, fzd.value2, fzd.value3);
+    for (int i = 0; i < fzd.loopCount; i++) {
+        vb->setRowKind(i, (i % 2 == 0) ? RowKind::INSERT : RowKind::UPDATE_AFTER);
+    }
+    StreamRecord *record = new StreamRecord(vb);
+    expandOp.processBatch(record);
+
+    delete record;
+}
+
+int GlobalExpandFuzz(struct ExpandFuzzData fzd, std::string filterExpr, int32_t chooseFunc)
+{
+    std::cout << "ExpandFuzz: chooseFunc=" << chooseFunc
+              << ", projectCount=" << fzd.projectCount
+              << ", loopCount=" << fzd.loopCount << std::endl;
+
+    switch (chooseFunc) {
+        case 1: TestExpandBasic(fzd); break;
+        case 2: TestExpandThreeProjections(fzd); break;
+        case 3: TestExpandWithRowKind(fzd); break;
+        default:
+            TestExpandBasic(fzd);
+            TestExpandThreeProjections(fzd);
+            TestExpandWithRowKind(fzd);
+            break;
     }
     return 0;
 }

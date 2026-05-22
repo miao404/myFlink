@@ -1,181 +1,142 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
- * Description: Fuzz test for AggregateWindowOperator covering tumbling/sliding windows
- *              with BIGINT data types and various window sizes.
- *              Reference UT: AggregateWindowOperatorTest.cpp
- */
-
-#include "table_fuzz_wrapper.h"
-#include "dt_fuzz_data.h"
-#include "runtime_env_util.h"
-
+#include "fuzz_wrapper.h"
+#include "streaming/runtime/streamrecord/StreamRecord.h"
+#include "streaming/api/operators/StreamOperatorFactory.h"
+#include "test/core/operators/OutputTest.h"
+#include "runtime/taskmanager/OmniRuntimeEnvironment.h"
+#include "runtime/state/TaskStateManager.h"
+#include "core/api/common/TaskInfoImpl.h"
+#include "table/typeutils/RowDataSerializer.h"
+#include "table/types/logical/RowType.h"
+#include "table/types/logical/LogicalType.h"
+#include "table/data/RowKind.h"
 #include <nlohmann/json.hpp>
-#include <vector>
 #include <iostream>
 
-#include "table/runtime/operators/window/AggregateWindowOperator.h"
-#include "streaming/api/operators/StreamOperatorFactory.h"
-#include "streaming/runtime/streamrecord/StreamRecord.h"
-#include "table/data/vectorbatch/VectorBatch.h"
-#include "table/typeutils/RowDataSerializer.h"
-#include "core/operators/OutputTest.h"
-#include "runtime/taskmanager/OmniRuntimeEnvironment.h"
-#include "core/api/common/TaskInfoImpl.h"
-#include <test/util/test_util.h>
-
+using namespace omnistream;
 using json = nlohmann::json;
-using namespace DtRuntimeEnvUtil;
 
-static const std::string nexmarkQ5Description = R"DELIM({
-    "operators": [{
-        "uniqueName": "org.apache.flink.table.runtime.operators.window.AggregateWindowOperator",
-        "name": "LocalWindowAgg_By_Simple",
-        "inputTypes": ["BIGINT", "BIGINT"],
-        "outputTypes": ["BIGINT", "BIGINT", "BIGINT"],
-        "description": {
-            "originDescription": null,
-            "windowType": "TumblingWindow",
-            "windowSize": 10000,
-            "windowSlide": 10000,
-            "rowtimeIndex": 1,
-            "inputTypes": ["BIGINT", "BIGINT"],
-            "outputTypes": ["BIGINT", "BIGINT", "BIGINT"],
-            "grouping": [0],
-            "aggInfoList": {
-                "aggregateCalls": [{
-                    "name": "COUNT($0)",
-                    "aggregationFunction": "CountAggFunction",
-                    "argIndexes": [0],
-                    "consumeRetraction": "false",
-                    "filterArg": -1
-                }],
-                "accTypes": ["BIGINT"],
-                "aggValueTypes": ["BIGINT"],
-                "indexOfCountStar": 0
-            }
-        }
-    }]
-})DELIM";
-
-static void TestWindowTumbling(const WindowFuzzData &fzd, uint16_t loopCount)
+omnistream::VectorBatch* createWindowTestVectorBatch(int rowCount, int64_t bidderValue, int64_t timestampValue)
 {
-    std::cout << "WindowFuzz: TumblingWindow with CountAgg" << std::endl;
+    omnistream::VectorBatch* vb = new omnistream::VectorBatch(rowCount);
+    auto col0 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col1 = new omniruntime::vec::Vector<int64_t>(rowCount);
 
-    json parsedJson = json::parse(nexmarkQ5Description);
-    std::string uniqueName = "org.apache.flink.table.runtime.operators.window.AggregateWindowOperator";
-    omnistream::OperatorConfig opConfig(
-        uniqueName,
-        "LocalWindowAgg_By_Simple",
-        parsedJson["operators"][0]["inputTypes"],
-        parsedJson["operators"][0]["outputTypes"],
-        parsedJson["operators"][0]["description"]
-    );
+    for (int i = 0; i < rowCount; i++) {
+        col0->SetValue(i, bidderValue + i);
+        col1->SetValue(i, timestampValue + i * 1000);
+        vb->setRowKind(i, RowKind::INSERT);
+    }
 
-    auto *output = new BatchOutputTest();
-    auto *windowAggOperator = dynamic_cast<AggregateWindowOperator<RowData *, TimeWindow> *>(
-        omnistream::StreamOperatorFactory::createOperatorAndCollector(opConfig, output));
+    vb->Append(col0);
+    vb->Append(col1);
+
+    return vb;
+}
+
+static const std::string WINDOW_DESC = R"JSON({"input_channels":[0],"operators":[{"description":{"windowType":"TumblingWindow","windowSize":5000,"aggInfoList":{"accTypes":["BIGINT"],"aggValueTypes":["BIGINT"],"aggregateCalls":[{"aggregationFunction":"LongSumAggFunction","argIndexes":[0],"consumeRetraction":"false","name":"SUM($0)","filterArg":-1}],"indexOfCountStar":-1},"inputTypes":["BIGINT","BIGINT"],"outputTypes":["BIGINT","BIGINT","BIGINT"]},"id":"AggregateWindowOperator","name":"AggregateWindow[tumbling]"}],"partition":{"channelNumber":1,"partitionName":"forward"}})JSON";
+
+void TestWindowBasic(const WindowFuzzData& fzd)
+{
+    std::cout << "TestWindowBasic" << std::endl;
+
+    json parsedJson = json::parse(WINDOW_DESC);
+
+    std::string uniqueName = "AggregateWindowOperator";
+    OperatorConfig opConfig(uniqueName, "AggregateWindow",
+        parsedJson["operators"][0]["description"]["inputTypes"],
+        parsedJson["operators"][0]["description"]["outputTypes"],
+        parsedJson["operators"][0]["description"]);
+
+    BatchOutputTest* output = new BatchOutputTest();
+    StreamOperatorFactory streamOperatorFactory;
+    auto *windowOp = streamOperatorFactory.createOperatorAndCollector(opConfig, output);
 
     auto env2 = new omnistream::RuntimeEnvironmentV2();
     auto taskInfo = new TaskInformationPOD();
     taskInfo->setStateBackend("HashMapStateBackend");
     env2->setTaskConfiguration(*taskInfo);
     StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
-    windowAggOperator->initializeState(initializer, new LongSerializer());
-    windowAggOperator->open();
+    windowOp->initializeState(initializer);
+    windowOp->open();
 
-    int rowCnt = (loopCount % 20) + 3;
-    auto *vbatch = new omnistream::VectorBatch(rowCnt);
-
-    std::vector<int64_t> bidCol(rowCnt);
-    std::vector<int64_t> tsCol(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        bidCol[i] = (fzd.keyValue + static_cast<int64_t>(i)) % 10;
-        tsCol[i] = fzd.timestamp + static_cast<int64_t>(i) * 1000;
-    }
-    vbatch->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, bidCol.data()));
-    vbatch->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, tsCol.data()));
-
-    for (int i = 0; i < rowCnt; ++i) {
-        vbatch->setRowKind(i, RowKind::INSERT);
-        vbatch->setTimestamp(i, tsCol[i]);
-    }
-
-    StreamRecord *record = new StreamRecord(vbatch);
-    windowAggOperator->processBatch(record);
-
-    delete env2;
-    delete taskInfo;
+    omnistream::VectorBatch* vb = createWindowTestVectorBatch(fzd.loopCount, fzd.bidderValue, fzd.timestampValue);
+    windowOp->processBatch(new StreamRecord(vb));
 }
 
-static void TestWindowMultipleBatches(const WindowFuzzData &fzd, uint16_t loopCount)
+void TestWindowMultiBatch(const WindowFuzzData& fzd)
 {
-    std::cout << "WindowFuzz: Multiple batches crossing window boundaries" << std::endl;
+    std::cout << "TestWindowMultiBatch" << std::endl;
 
-    json parsedJson = json::parse(nexmarkQ5Description);
-    std::string uniqueName = "org.apache.flink.table.runtime.operators.window.AggregateWindowOperator";
-    omnistream::OperatorConfig opConfig(
-        uniqueName,
-        "LocalWindowAgg_By_Simple",
-        parsedJson["operators"][0]["inputTypes"],
-        parsedJson["operators"][0]["outputTypes"],
-        parsedJson["operators"][0]["description"]
-    );
+    json parsedJson = json::parse(WINDOW_DESC);
 
-    auto *output = new BatchOutputTest();
-    auto *windowAggOperator = dynamic_cast<AggregateWindowOperator<RowData *, TimeWindow> *>(
-        omnistream::StreamOperatorFactory::createOperatorAndCollector(opConfig, output));
+    std::string uniqueName = "AggregateWindowOperator";
+    OperatorConfig opConfig(uniqueName, "AggregateWindow",
+        parsedJson["operators"][0]["description"]["inputTypes"],
+        parsedJson["operators"][0]["description"]["outputTypes"],
+        parsedJson["operators"][0]["description"]);
+
+    BatchOutputTest* output = new BatchOutputTest();
+    StreamOperatorFactory streamOperatorFactory;
+    auto *windowOp = streamOperatorFactory.createOperatorAndCollector(opConfig, output);
 
     auto env2 = new omnistream::RuntimeEnvironmentV2();
     auto taskInfo = new TaskInformationPOD();
     taskInfo->setStateBackend("HashMapStateBackend");
     env2->setTaskConfiguration(*taskInfo);
     StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
-    windowAggOperator->initializeState(initializer, new LongSerializer());
-    windowAggOperator->open();
+    windowOp->initializeState(initializer);
+    windowOp->open();
 
-    uint16_t batchCount = (loopCount % 5) + 2;
-    for (uint16_t b = 0; b < batchCount; ++b) {
-        int rowCnt = (loopCount % 10) + 2;
-        auto *vbatch = new omnistream::VectorBatch(rowCnt);
-
-        std::vector<int64_t> bidCol(rowCnt);
-        std::vector<int64_t> tsCol(rowCnt);
-        for (int i = 0; i < rowCnt; ++i) {
-            bidCol[i] = (fzd.keyValue + static_cast<int64_t>(i + b * rowCnt)) % 8;
-            tsCol[i] = fzd.timestamp + static_cast<int64_t>(b * 15000 + i * 2000);
-        }
-        vbatch->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, bidCol.data()));
-        vbatch->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, tsCol.data()));
-
-        for (int i = 0; i < rowCnt; ++i) {
-            vbatch->setRowKind(i, RowKind::INSERT);
-            vbatch->setTimestamp(i, tsCol[i]);
-        }
-
-        StreamRecord *record = new StreamRecord(vbatch);
-        windowAggOperator->processBatch(record);
+    for (int batch = 0; batch < 3; batch++) {
+        omnistream::VectorBatch* vb = createWindowTestVectorBatch(fzd.loopCount, fzd.bidderValue, fzd.timestampValue + batch * fzd.windowSize);
+        windowOp->processBatch(new StreamRecord(vb));
     }
-
-    delete env2;
-    delete taskInfo;
 }
 
-int WindowFuzz(struct WindowFuzzData fzd, uint16_t loopCount, uint16_t chooseMode)
+void TestWindowLargeScale(const WindowFuzzData& fzd)
 {
-    try {
-        switch (chooseMode % 2) {
-            case 0:
-                TestWindowTumbling(fzd, loopCount);
-                break;
-            case 1:
-                TestWindowMultipleBatches(fzd, loopCount);
-                break;
-            default:
-                break;
-        }
-    } catch (const std::exception &e) {
-        std::cerr << "WindowFuzz exception: " << e.what() << std::endl;
-        return -1;
+    std::cout << "TestWindowLargeScale" << std::endl;
+
+    json parsedJson = json::parse(WINDOW_DESC);
+
+    std::string uniqueName = "AggregateWindowOperator";
+    OperatorConfig opConfig(uniqueName, "AggregateWindow",
+        parsedJson["operators"][0]["description"]["inputTypes"],
+        parsedJson["operators"][0]["description"]["outputTypes"],
+        parsedJson["operators"][0]["description"]);
+
+    BatchOutputTest* output = new BatchOutputTest();
+    StreamOperatorFactory streamOperatorFactory;
+    auto *windowOp = streamOperatorFactory.createOperatorAndCollector(opConfig, output);
+
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
+    windowOp->initializeState(initializer);
+    windowOp->open();
+
+    int scaleCount = fzd.loopCount > 0 ? fzd.loopCount : 100;
+    omnistream::VectorBatch* vb = createWindowTestVectorBatch(scaleCount, fzd.bidderValue, fzd.timestampValue);
+    windowOp->processBatch(new StreamRecord(vb));
+}
+
+int GlobalWindowFuzz(struct WindowFuzzData fzd, std::string filterExpr, int32_t chooseFunc)
+{
+    std::cout << "WindowFuzz: chooseFunc=" << chooseFunc
+              << ", windowSize=" << fzd.windowSize
+              << ", loopCount=" << fzd.loopCount << std::endl;
+
+    switch (chooseFunc) {
+        case 1: TestWindowBasic(fzd); break;
+        case 2: TestWindowMultiBatch(fzd); break;
+        case 3: TestWindowLargeScale(fzd); break;
+        default:
+            TestWindowBasic(fzd);
+            TestWindowMultiBatch(fzd);
+            TestWindowLargeScale(fzd);
+            break;
     }
     return 0;
 }

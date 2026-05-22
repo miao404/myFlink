@@ -1,157 +1,148 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
- * Description: Fuzz test for StreamingJoinOperator covering InnerJoin and LeftOuterJoin
- *              with BIGINT key types and various data distributions.
- */
-
-#include "table_fuzz_wrapper.h"
-#include "dt_fuzz_data.h"
-#include "dt_fuzz_factory_util.h"
-#include "runtime_env_util.h"
-
+#include "fuzz_wrapper.h"
+#include "table/data/binary/BinaryRowData.h"
+#include "streaming/runtime/streamrecord/StreamRecord.h"
+#include "streaming/api/operators/KeyedProcessOperator.h"
+#include "test/core/operators/OutputTest.h"
+#include "runtime/taskmanager/OmniRuntimeEnvironment.h"
+#include "runtime/state/TaskStateManager.h"
+#include "core/api/common/TaskInfoImpl.h"
+#include "table/typeutils/RowDataSerializer.h"
+#include "table/types/logical/RowType.h"
+#include "table/types/logical/LogicalType.h"
+#include "test/util/test_util.h"
 #include <nlohmann/json.hpp>
-#include <vector>
 #include <iostream>
 
-#include "table/runtime/operators/join/StreamingJoinOperator.h"
-#include "streaming/runtime/streamrecord/StreamRecord.h"
-#include "table/data/binary/BinaryRowData.h"
-#include "table/typeutils/RowDataSerializer.h"
-#include "core/operators/OutputTest.h"
-#include "runtime/taskmanager/OmniRuntimeEnvironment.h"
-#include "core/api/common/TaskInfoImpl.h"
-#include "table/data/vectorbatch/VectorBatch.h"
-#include <test/util/test_util.h>
-
+using namespace omnistream;
 using json = nlohmann::json;
-using namespace DtFuzzFactoryUtil;
-using namespace DtRuntimeEnvUtil;
 
-static void TestInnerJoin(const TableFuzzData &fzd, uint16_t loopCount)
+#include "table/runtime/operators/join/stream/InnerJoinOperator.h"
+#include "table/runtime/operators/join/stream/LeftOuterJoinOperator.h"
+#include "table/data/RowKind.h"
+
+omnistream::VectorBatch* createJoinTestVectorBatch(int rowCount, int32_t keyValue, int64_t windowEndTime, int32_t dataValue)
 {
-    std::cout << "JoinFuzz: InnerJoin" << std::endl;
+    omnistream::VectorBatch* vb = new omnistream::VectorBatch(rowCount);
+    auto colKey = new omniruntime::vec::Vector<int32_t>(rowCount);
+    auto colWindow = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto colData = new omniruntime::vec::Vector<int32_t>(rowCount);
 
-    json config = CreateJoinConfig(
-        "InnerJoin",
-        {"BIGINT", "BIGINT"},
-        {"BIGINT", "BIGINT"},
-        {0}, {0},
-        {true, true});
-
-    auto *output = new BatchOutputTest();
-    StreamingJoinOperator<long> *joinOp = new StreamingJoinOperator<long>(config, output);
-
-    auto rowFields = CreateRowFields({"BIGINT", "BIGINT"});
-    auto *ctx = CreateRuntimeEnvWithOperatorId("HashMapStateBackend", rowFields,
-                                                "deadbeefdeadbeefdeadbeefdeadbeef");
-
-    joinOp->initializeState(ctx->initializer, ctx->serializer);
-    joinOp->open();
-
-    int rowCnt = (loopCount % 10) + 2;
-    std::vector<long> leftCol0(rowCnt);
-    std::vector<long> leftCol1(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        leftCol0[i] = (fzd.longValue + i) % 5;
-        leftCol1[i] = fzd.longValue2 + i * 100;
+    for (int i = 0; i < rowCount; i++) {
+        colKey->SetValue(i, keyValue + i);
+        colWindow->SetValue(i, windowEndTime);
+        colData->SetValue(i, dataValue + i);
+        vb->setRowKind(i, RowKind::INSERT);
     }
 
-    omnistream::VectorBatch *leftVb = new omnistream::VectorBatch(rowCnt);
-    leftVb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, leftCol0.data()));
-    leftVb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, leftCol1.data()));
+    vb->Append(colKey);
+    vb->Append(colWindow);
+    vb->Append(colData);
 
-    StreamRecord *leftRecord = new StreamRecord(leftVb);
-    joinOp->processBatch1(leftRecord);
-
-    std::vector<long> rightCol0(rowCnt);
-    std::vector<long> rightCol1(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        rightCol0[i] = (fzd.longValue + i) % 5;
-        rightCol1[i] = fzd.longValue3 + i * 200;
-    }
-
-    omnistream::VectorBatch *rightVb = new omnistream::VectorBatch(rowCnt);
-    rightVb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, rightCol0.data()));
-    rightVb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, rightCol1.data()));
-
-    StreamRecord *rightRecord = new StreamRecord(rightVb);
-    joinOp->processBatch2(rightRecord);
-
-    delete joinOp;
-    delete ctx;
+    return vb;
 }
 
-static void TestLeftOuterJoin(const TableFuzzData &fzd, uint16_t loopCount)
+static const std::string JOIN_INNER_DESC = R"JSON({"input_channels":[0,1],"operators":[{"description":{"joinType":"InnerJoin","leftInputTypes":["INTEGER","BIGINT","INTEGER"],"rightInputTypes":["INTEGER","BIGINT","INTEGER"],"leftWindowEndCol":1,"rightWindowEndCol":1,"outputTypes":["INTEGER","BIGINT","INTEGER","INTEGER","BIGINT","INTEGER"]},"id":"WindowJoinOperator","name":"WindowJoin[inner]"}],"partition":{"channelNumber":1,"partitionName":"forward"}})JSON";
+
+static const std::string JOIN_LEFT_DESC = R"JSON({"input_channels":[0,1],"operators":[{"description":{"joinType":"LeftOuterJoin","leftInputTypes":["INTEGER","BIGINT","INTEGER"],"rightInputTypes":["INTEGER","BIGINT","INTEGER"],"leftWindowEndCol":1,"rightWindowEndCol":1,"outputTypes":["INTEGER","BIGINT","INTEGER","INTEGER","BIGINT","INTEGER"]},"id":"WindowJoinOperator","name":"WindowJoin[leftOuter]"}],"partition":{"channelNumber":1,"partitionName":"forward"}})JSON";
+
+void TestJoinInner(const JoinFuzzData& fzd)
 {
-    std::cout << "JoinFuzz: LeftOuterJoin" << std::endl;
+    std::cout << "TestJoinInner" << std::endl;
 
-    json config = CreateJoinConfig(
-        "LeftOuterJoin",
-        {"BIGINT", "BIGINT"},
-        {"BIGINT", "BIGINT"},
-        {0}, {0},
-        {false, false});
+    json parsedJson = json::parse(JOIN_INNER_DESC);
+    json opDesc = parsedJson["operators"][0]["description"];
 
-    auto *output = new BatchOutputTest();
-    StreamingJoinOperator<long> *joinOp = new StreamingJoinOperator<long>(config, output);
+    BatchOutputTest* output = new BatchOutputTest();
+    InnerJoinOperator *joinOp = new InnerJoinOperator(opDesc, output);
 
-    auto rowFields = CreateRowFields({"BIGINT", "BIGINT"});
-    auto *ctx = CreateRuntimeEnvWithOperatorId("HashMapStateBackend", rowFields,
-                                                "deadbeefdeadbeefdeadbeefdeadbeef");
-
-    joinOp->initializeState(ctx->initializer, ctx->serializer);
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
+    joinOp->initializeState(initializer);
     joinOp->open();
 
-    int rowCnt = (loopCount % 8) + 2;
-    std::vector<long> leftCol0(rowCnt);
-    std::vector<long> leftCol1(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        leftCol0[i] = (fzd.longValue + i) % 8;
-        leftCol1[i] = fzd.longValue2 + i * 50;
-    }
+    omnistream::VectorBatch* leftVb = createJoinTestVectorBatch(fzd.loopCount, fzd.leftKeyValue, fzd.windowEndTime, fzd.leftValue);
+    omnistream::VectorBatch* rightVb = createJoinTestVectorBatch(fzd.loopCount, fzd.rightKeyValue, fzd.windowEndTime, fzd.rightValue);
 
-    omnistream::VectorBatch *leftVb = new omnistream::VectorBatch(rowCnt);
-    leftVb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, leftCol0.data()));
-    leftVb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, leftCol1.data()));
+    joinOp->processBatch(new StreamRecord(leftVb), 0);
+    joinOp->processBatch(new StreamRecord(rightVb), 1);
 
-    StreamRecord *leftRecord = new StreamRecord(leftVb);
-    joinOp->processBatch1(leftRecord);
-
-    int rightRowCnt = (loopCount % 5) + 1;
-    std::vector<long> rightCol0(rightRowCnt);
-    std::vector<long> rightCol1(rightRowCnt);
-    for (int i = 0; i < rightRowCnt; ++i) {
-        rightCol0[i] = (fzd.longValue + i) % 3;
-        rightCol1[i] = fzd.longValue3 + i * 75;
-    }
-
-    omnistream::VectorBatch *rightVb = new omnistream::VectorBatch(rightRowCnt);
-    rightVb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rightRowCnt, rightCol0.data()));
-    rightVb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rightRowCnt, rightCol1.data()));
-
-    StreamRecord *rightRecord = new StreamRecord(rightVb);
-    joinOp->processBatch2(rightRecord);
-
-    delete joinOp;
-    delete ctx;
+    delete leftVb;
+    delete rightVb;
 }
 
-int JoinFuzz(struct TableFuzzData fzd, uint16_t loopCount, uint16_t chooseJoinType)
+void TestJoinLeftOuter(const JoinFuzzData& fzd)
 {
-    try {
-        switch (chooseJoinType % 2) {
-            case 0:
-                TestInnerJoin(fzd, loopCount);
-                break;
-            case 1:
-                TestLeftOuterJoin(fzd, loopCount);
-                break;
-            default:
-                break;
-        }
-    } catch (const std::exception &e) {
-        std::cerr << "JoinFuzz exception: " << e.what() << std::endl;
-        return -1;
+    std::cout << "TestJoinLeftOuter" << std::endl;
+
+    json parsedJson = json::parse(JOIN_LEFT_DESC);
+    json opDesc = parsedJson["operators"][0]["description"];
+
+    BatchOutputTest* output = new BatchOutputTest();
+    LeftOuterJoinOperator *joinOp = new LeftOuterJoinOperator(opDesc, output);
+
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
+    joinOp->initializeState(initializer);
+    joinOp->open();
+
+    omnistream::VectorBatch* leftVb = createJoinTestVectorBatch(fzd.loopCount, fzd.leftKeyValue, fzd.windowEndTime, fzd.leftValue);
+    omnistream::VectorBatch* rightVb = createJoinTestVectorBatch(fzd.loopCount, fzd.rightKeyValue, fzd.windowEndTime, fzd.rightValue);
+
+    joinOp->processBatch(new StreamRecord(leftVb), 0);
+    joinOp->processBatch(new StreamRecord(rightVb), 1);
+
+    delete leftVb;
+    delete rightVb;
+}
+
+void TestJoinMultiBatch(const JoinFuzzData& fzd)
+{
+    std::cout << "TestJoinMultiBatch" << std::endl;
+
+    json parsedJson = json::parse(JOIN_INNER_DESC);
+    json opDesc = parsedJson["operators"][0]["description"];
+
+    BatchOutputTest* output = new BatchOutputTest();
+    InnerJoinOperator *joinOp = new InnerJoinOperator(opDesc, output);
+
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
+    joinOp->initializeState(initializer);
+    joinOp->open();
+
+    for (int batch = 0; batch < 3; batch++) {
+        omnistream::VectorBatch* leftVb = createJoinTestVectorBatch(fzd.loopCount, fzd.leftKeyValue + batch, fzd.windowEndTime + batch * 1000, fzd.leftValue);
+        omnistream::VectorBatch* rightVb = createJoinTestVectorBatch(fzd.loopCount, fzd.rightKeyValue + batch, fzd.windowEndTime + batch * 1000, fzd.rightValue);
+
+        joinOp->processBatch(new StreamRecord(leftVb), 0);
+        joinOp->processBatch(new StreamRecord(rightVb), 1);
+    }
+}
+
+int GlobalJoinFuzz(struct JoinFuzzData fzd, std::string filterExpr, int32_t chooseFunc)
+{
+    std::cout << "JoinFuzz: chooseFunc=" << chooseFunc
+              << ", joinType=" << fzd.joinType
+              << ", loopCount=" << fzd.loopCount << std::endl;
+
+    switch (chooseFunc) {
+        case 1: TestJoinInner(fzd); break;
+        case 2: TestJoinLeftOuter(fzd); break;
+        case 3: TestJoinMultiBatch(fzd); break;
+        default:
+            TestJoinInner(fzd);
+            TestJoinLeftOuter(fzd);
+            TestJoinMultiBatch(fzd);
+            break;
     }
     return 0;
 }

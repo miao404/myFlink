@@ -1,18 +1,34 @@
 {
-    "suite": "TableOperatorFuzz",
-    "case": "SinkFuzz",
-    "description": "Fuzz tests for SinkOperator covering processElement and processBatch with VectorBatch",
-    "fuzz_function": "SinkFuzz",
-    "parameters": [
-        {"name": "fzd", "type": "SinkFuzzData"},
-        {"name": "loopCount", "type": "uint16_t"},
-        {"name": "chooseMode", "type": "uint16_t"}
-    ],
-    "test_points": [
-        {"id": "sink_process_element", "description": "processElement with BinaryRowData", "coverage": ["processElement", "BinaryRowData"]},
-        {"id": "sink_process_batch", "description": "processBatch with VectorBatch", "coverage": ["processBatch", "VectorBatch", "INSERT"]},
-        {"id": "sink_rowkind_mix", "description": "VectorBatch with mixed RowKind", "coverage": ["processBatch", "RowKind", "finish"]}
-    ],
-    "data_distributions": ["uniform", "sequential", "random"],
-    "boundary_conditions": ["single_row", "large_batch", "zero_values"]
+  "METADATA": {
+    "description": "MyFlink DT case",
+    "version": "1.0.0",
+    "author": "",
+    "date": "2026-05-22"
+  },
+  "DATA": [
+    {
+      "SinkFuzzData": {
+        "intValue": 42,
+        "longValue": 1000,
+        "loopCount": 50,
+        "rowKind": 0,
+        "outputFile": "/tmp/sink_output.csv",
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 1
+    }
+  ],
+  "TEST": [
+    {
+      "SUITE_NAME": "suite-01",
+      "CASES": [
+        {
+          "id": "case1",
+          "apiName": "GlobalSinkFuzz($SinkFuzzData, $filterExpr, $chooseFunc)",
+          "exeMode": "fuzz"
+        }
+      ]
+    }
+  ]
 }

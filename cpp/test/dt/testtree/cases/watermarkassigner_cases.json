@@ -1,18 +1,35 @@
 {
-    "suite": "TableOperatorFuzz",
-    "case": "WatermarkAssignerFuzz",
-    "description": "Fuzz tests for WatermarkAssignerOperator (P0) covering event time processing and watermark generation",
-    "fuzz_function": "WatermarkAssignerFuzz",
-    "parameters": [
-        {"name": "fzd", "type": "WatermarkAssignerFuzzData"},
-        {"name": "loopCount", "type": "uint16_t"},
-        {"name": "chooseMode", "type": "uint16_t"}
-    ],
-    "test_points": [
-        {"id": "watermark_basic", "description": "Basic processBatch with monotonic timestamps", "coverage": ["processBatch", "finish", "monotonic"]},
-        {"id": "watermark_out_of_order", "description": "Out-of-order events with tolerance", "coverage": ["outOfOrder", "tolerance", "watermarkAdvance"]},
-        {"id": "watermark_multiple_batches", "description": "Multiple batches with advancing watermark", "coverage": ["multipleBatches", "watermarkProgression"]}
-    ],
-    "data_distributions": ["monotonic", "out_of_order", "bursty"],
-    "boundary_conditions": ["zero_tolerance", "max_lateness", "single_event"]
+  "METADATA": {
+    "description": "MyFlink DT case",
+    "version": "1.0.0",
+    "author": "",
+    "date": "2026-05-22"
+  },
+  "DATA": [
+    {
+      "WatermarkAssignerFuzzData": {
+        "timestampValue": 1000,
+        "dataValue": 42,
+        "outOfOrderTime": 200,
+        "emissionInterval": 100,
+        "loopCount": 50,
+        "timeRowIndex": 0,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 1
+    }
+  ],
+  "TEST": [
+    {
+      "SUITE_NAME": "suite-01",
+      "CASES": [
+        {
+          "id": "case1",
+          "apiName": "GlobalWatermarkAssignerFuzz($WatermarkAssignerFuzzData, $filterExpr, $chooseFunc)",
+          "exeMode": "fuzz"
+        }
+      ]
+    }
+  ]
 }

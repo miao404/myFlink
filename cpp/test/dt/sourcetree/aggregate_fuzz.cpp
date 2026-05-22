@@ -1,265 +1,191 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
- * Description: Fuzz test for GroupAggFunction covering SUM/COUNT/AVG/MAX/MIN
- *              with BIGINT, INTEGER, VARCHAR data types and streaming semantics.
- */
-
-#include "table_fuzz_wrapper.h"
-#include "dt_fuzz_data.h"
-#include "dt_fuzz_factory_util.h"
-#include "runtime_env_util.h"
-
+#include "fuzz_wrapper.h"
+#include "table/data/binary/BinaryRowData.h"
+#include "streaming/runtime/streamrecord/StreamRecord.h"
+#include "streaming/api/operators/KeyedProcessOperator.h"
+#include "test/core/operators/OutputTest.h"
+#include "runtime/taskmanager/OmniRuntimeEnvironment.h"
+#include "runtime/state/TaskStateManager.h"
+#include "core/api/common/TaskInfoImpl.h"
+#include "table/typeutils/RowDataSerializer.h"
+#include "table/types/logical/RowType.h"
+#include "table/types/logical/LogicalType.h"
+#include "test/util/test_util.h"
 #include <nlohmann/json.hpp>
-#include <gtest/gtest.h>
-#include <vector>
 #include <iostream>
-#include <cmath>
+
+using namespace omnistream;
+using json = nlohmann::json;
 
 #include "table/runtime/operators/aggregate/GroupAggFunction.h"
-#include "streaming/api/operators/KeyedProcessOperator.h"
-#include "streaming/api/operators/StreamOperatorFactory.h"
-#include "streaming/runtime/streamrecord/StreamRecord.h"
-#include "table/data/binary/BinaryRowData.h"
-#include "table/data/JoinedRowData.h"
-#include "table/typeutils/RowDataSerializer.h"
-#include "core/operators/OutputTest.h"
-#include "runtime/taskmanager/OmniRuntimeEnvironment.h"
-#include "core/api/common/TaskInfoImpl.h"
 
-using json = nlohmann::json;
-using namespace DtFuzzFactoryUtil;
-using namespace DtRuntimeEnvUtil;
-
-static void TestSumAgg(const TableFuzzData &fzd, uint16_t loopCount)
+omnistream::VectorBatch* createAggTestVectorBatch(int rowCount, int64_t keyValue, int64_t aggValue1, int64_t aggValue2)
 {
-    std::cout << "AggregateFuzz: SUM(BIGINT)" << std::endl;
+    omnistream::VectorBatch* vb = new omnistream::VectorBatch(rowCount);
+    auto col0 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col1 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col2 = new omniruntime::vec::Vector<int64_t>(rowCount);
 
-    json config = CreateGroupAggConfig(
-        "LongSumAggFunction", "SUM($1)",
-        {"BIGINT", "BIGINT"}, {"BIGINT", "BIGINT"},
-        {0}, {1},
-        {"BIGINT"}, {"BIGINT"}, -1);
-
-    auto *groupAgg = new GroupAggFunction(1L, config);
-    auto *output = new OutputTest();
-    KeyedProcessOperator<RowData *, RowData *, RowData *> keyedProcessOperator(groupAgg, output, config);
-    keyedProcessOperator.setup();
-
-    auto rowFields = CreateRowFields({"BIGINT", "BIGINT"});
-    auto *ctx = CreateRuntimeEnv("HashMapStateBackend", rowFields);
-    InitializeOperatorState(keyedProcessOperator, ctx);
-    keyedProcessOperator.open();
-
-    uint16_t count = (loopCount % 100) + 1;
-    for (uint16_t i = 0; i < count; ++i) {
-        int64_t keyVal = (fzd.longValue % 10) + 1;
-        int64_t aggVal = (fzd.longValue2 + static_cast<int64_t>(i)) % 1000;
-
-        BinaryRowData *row = BinaryRowData::createBinaryRowDataWithMem(2);
-        row->setLong(0, keyVal);
-        row->setLong(1, aggVal);
-
-        StreamRecord *record = new StreamRecord(reinterpret_cast<void *>(row));
-        keyedProcessOperator.setCurrentKey(row);
-        keyedProcessOperator.processElement(record);
-        delete record;
+    for (int i = 0; i < rowCount; i++) {
+        col0->SetValue(i, keyValue + i);
+        col1->SetValue(i, aggValue1 + i);
+        col2->SetValue(i, aggValue2 + i);
+        vb->setRowKind(i, RowKind::INSERT);
     }
 
-    delete ctx;
+    vb->Append(col0);
+    vb->Append(col1);
+    vb->Append(col2);
+
+    return vb;
 }
 
-static void TestCountAgg(const TableFuzzData &fzd, uint16_t loopCount)
+static const std::string AGG_DESC_SUM = R"JSON({"input_channels":[0],"operators":[{"description":{"aggInfoList":{"accTypes":["BIGINT"],"aggValueTypes":["BIGINT"],"aggregateCalls":[{"aggregationFunction":"LongSumAggFunction","argIndexes":[1],"consumeRetraction":"false","name":"SUM($1)","filterArg":-1}],"indexOfCountStar":-1},"grouping":[0],"distinctInfos":[],"inputTypes":["BIGINT","BIGINT","BIGINT"],"originDescription":"[3]:GroupAggregate(groupBy=[col0], select=[col0, SUM(col1) AS EXPR$1])","outputTypes":["BIGINT","BIGINT"]},"id":"org.apache.flink.streaming.api.operators.KeyedProcessOperator","inputs":[{"kind":"Row","type":[{"isNull":true,"kind":"logical","type":"BIGINT"},{"isNull":true,"kind":"logical","type":"BIGINT"},{"isNull":true,"kind":"logical","type":"BIGINT"}]}],"name":"GroupAggregate[3]","output":{"kind":"Row","type":[{"isNull":true,"kind":"logical","type":"BIGINT"},{"isNull":true,"kind":"logical","type":"BIGINT"}]}}],"partition":{"channelNumber":1,"partitionName":"forward"}})JSON";
+static const std::string AGG_DESC_RETRACT = R"JSON({"input_channels":[0],"operators":[{"description":{"aggInfoList":{"accTypes":["BIGINT","BIGINT"],"aggValueTypes":["BIGINT"],"aggregateCalls":[{"aggregationFunction":"LongSumAggFunction","argIndexes":[1],"consumeRetraction":"true","name":"SUM($1)","filterArg":-1}],"indexOfCountStar":1},"grouping":[0],"distinctInfos":[],"inputTypes":["BIGINT","BIGINT","BIGINT"],"originDescription":"[3]:GroupAggregate(groupBy=[col0], select=[col0, SUM(col1) AS EXPR$1])","outputTypes":["BIGINT","BIGINT"]},"id":"org.apache.flink.streaming.api.operators.KeyedProcessOperator","inputs":[{"kind":"Row","type":[{"isNull":true,"kind":"logical","type":"BIGINT"},{"isNull":true,"kind":"logical","type":"BIGINT"},{"isNull":true,"kind":"logical","type":"BIGINT"}]}],"name":"GroupAggregate[3]","output":{"kind":"Row","type":[{"isNull":true,"kind":"logical","type":"BIGINT"},{"isNull":true,"kind":"logical","type":"BIGINT"}]}}],"partition":{"channelNumber":1,"partitionName":"forward"}})JSON";
+static const std::string AGG_DESC_AVG = R"JSON({"input_channels":[0],"operators":[{"description":{"aggInfoList":{"accTypes":["BIGINT","BIGINT"],"aggValueTypes":["BIGINT"],"aggregateCalls":[{"aggregationFunction":"LongAvgAggFunction","argIndexes":[1],"consumeRetraction":"false","filterArg":-1,"name":"AVG($1)"}],"indexOfCountStar":-1},"grouping":[0],"inputTypes":["BIGINT","BIGINT","BIGINT"],"originDescription":"[3]:GroupAggregate(groupBy=[col0], select=[col0, AVG(col1) AS EXPR$1])","outputTypes":["BIGINT","BIGINT"],"distinctInfos":[]},"id":"org.apache.flink.streaming.api.operators.KeyedProcessOperator","inputs":[{"kind":"Row","type":[{"isNull":true,"kind":"logical","type":"BIGINT"},{"isNull":true,"kind":"logical","type":"BIGINT"},{"isNull":true,"kind":"logical","type":"BIGINT"}]}],"name":"GroupAggregate[3]","output":{"kind":"Row","type":[{"isNull":true,"kind":"logical","type":"BIGINT"},{"isNull":true,"kind":"logical","type":"BIGINT"}]}}],"partition":{"channelNumber":1,"partitionName":"forward"}})JSON";
+
+void TestGroupAggBasic(const GroupAggFuzzData& fzd)
 {
-    std::cout << "AggregateFuzz: COUNT(BIGINT)" << std::endl;
+    std::cout << "TestGroupAggBasic" << std::endl;
 
-    json config = CreateGroupAggConfig(
-        "CountAggFunction", "COUNT($1)",
-        {"BIGINT", "BIGINT"}, {"BIGINT", "BIGINT"},
-        {0}, {1},
-        {"BIGINT"}, {"BIGINT"}, 0);
+    std::string description = AGG_DESC_SUM;
 
-    auto *groupAgg = new GroupAggFunction(1L, config);
-    auto *output = new OutputTest();
-    KeyedProcessOperator<RowData *, RowData *, RowData *> keyedProcessOperator(groupAgg, output, config);
-    keyedProcessOperator.setup();
+    json parsedJson = json::parse(description);
 
-    auto rowFields = CreateRowFields({"BIGINT", "BIGINT"});
-    auto *ctx = CreateRuntimeEnv("HashMapStateBackend", rowFields);
-    InitializeOperatorState(keyedProcessOperator, ctx);
-    keyedProcessOperator.open();
+    std::string uniqueName = "org.apache.flink.streaming.api.operators.KeyedProcessOperator";
+    omnistream::OperatorConfig opConfig(
+            uniqueName,
+            "Group_By_Simple",
+            parsedJson["operators"][0]["inputTypes"],
+            parsedJson["operators"][0]["outputTypes"],
+            parsedJson["operators"][0]["description"]
+    );
 
-    uint16_t count = (loopCount % 50) + 1;
-    for (uint16_t i = 0; i < count; ++i) {
-        int64_t keyVal = (fzd.longValue % 5) + 1;
-        int64_t aggVal = fzd.longValue2 + static_cast<int64_t>(i);
+    BatchOutputTest* output = new BatchOutputTest();
+    GroupAggFunction *func = new GroupAggFunction(0l, opConfig.getDescription());
+    KeyedProcessOperator<RowData *, RowData*, RowData*> *keyedOp = new KeyedProcessOperator(func, output, opConfig.getDescription());
+    keyedOp->setup();
 
-        BinaryRowData *row = BinaryRowData::createBinaryRowDataWithMem(2);
-        row->setLong(0, keyVal);
-        row->setLong(1, aggVal);
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
+    std::vector<omnistream::RowField> *typeInfo = new std::vector<omnistream::RowField>(
+        {omnistream::RowField("col0", BasicLogicalType::BIGINT), omnistream::RowField("col1", BasicLogicalType::BIGINT), omnistream::RowField("col2", BasicLogicalType::BIGINT)});
+    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, *typeInfo));
+    keyedOp->initializeState(initializer, ser);
+    keyedOp->open();
 
-        StreamRecord *record = new StreamRecord(reinterpret_cast<void *>(row));
-        keyedProcessOperator.setCurrentKey(row);
-        keyedProcessOperator.processElement(record);
-        delete record;
-    }
+    omnistream::VectorBatch* vb = createAggTestVectorBatch(fzd.loopCount, fzd.keyValue, fzd.aggValue1, fzd.aggValue2);
+    StreamRecord *record = new StreamRecord(vb);
+    keyedOp->processBatch(record);
 
-    delete ctx;
+    delete record;
 }
 
-static void TestAvgAgg(const TableFuzzData &fzd, uint16_t loopCount)
+void TestGroupAggWithRetract(const GroupAggFuzzData& fzd)
 {
-    std::cout << "AggregateFuzz: AVG(BIGINT)" << std::endl;
+    std::cout << "TestGroupAggWithRetract" << std::endl;
 
-    json config;
-    config["originDescription"] = nullptr;
-    config["inputTypes"] = {"BIGINT", "BIGINT"};
-    config["outputTypes"] = {"BIGINT", "BIGINT"};
-    config["grouping"] = {0};
-    config["distinctInfos"] = json::array();
+    std::string description = AGG_DESC_RETRACT;
 
-    json aggCall;
-    aggCall["name"] = "AVG($1)";
-    aggCall["aggregationFunction"] = "LongAvgAggFunction";
-    aggCall["argIndexes"] = {1};
-    aggCall["consumeRetraction"] = "true";
-    aggCall["filterArg"] = -1;
+    json parsedJson = json::parse(description);
 
-    json aggInfoList;
-    aggInfoList["aggregateCalls"] = json::array({aggCall});
-    aggInfoList["accTypes"] = {"BIGINT", "BIGINT", "BIGINT"};
-    aggInfoList["aggValueTypes"] = {"BIGINT"};
-    aggInfoList["indexOfCountStar"] = 2;
-    config["aggInfoList"] = aggInfoList;
+    std::string uniqueName = "org.apache.flink.streaming.api.operators.KeyedProcessOperator";
+    omnistream::OperatorConfig opConfig(
+            uniqueName,
+            "Group_By_Simple",
+            parsedJson["operators"][0]["inputTypes"],
+            parsedJson["operators"][0]["outputTypes"],
+            parsedJson["operators"][0]["description"]
+    );
 
-    auto *groupAgg = new GroupAggFunction(1L, config);
-    auto *output = new OutputTest();
-    KeyedProcessOperator<RowData *, RowData *, RowData *> keyedProcessOperator(groupAgg, output, config);
-    keyedProcessOperator.setup();
+    BatchOutputTest* output = new BatchOutputTest();
+    GroupAggFunction *func = new GroupAggFunction(0l, opConfig.getDescription());
+    KeyedProcessOperator<RowData *, RowData*, RowData*> *keyedOp = new KeyedProcessOperator(func, output, opConfig.getDescription());
+    keyedOp->setup();
 
-    auto rowFields = CreateRowFields({"BIGINT", "BIGINT"});
-    auto *ctx = CreateRuntimeEnv("HashMapStateBackend", rowFields);
-    InitializeOperatorState(keyedProcessOperator, ctx);
-    keyedProcessOperator.open();
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
+    std::vector<omnistream::RowField> *typeInfo = new std::vector<omnistream::RowField>(
+        {omnistream::RowField("col0", BasicLogicalType::BIGINT), omnistream::RowField("col1", BasicLogicalType::BIGINT), omnistream::RowField("col2", BasicLogicalType::BIGINT)});
+    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, *typeInfo));
+    keyedOp->initializeState(initializer, ser);
+    keyedOp->open();
 
-    uint16_t count = (loopCount % 80) + 1;
-    for (uint16_t i = 0; i < count; ++i) {
-        int64_t keyVal = (fzd.longValue % 8) + 1;
-        int64_t aggVal = (fzd.longValue2 + static_cast<int64_t>(i * 7)) % 500;
+    omnistream::VectorBatch* vb = createAggTestVectorBatch(fzd.loopCount, fzd.keyValue, fzd.aggValue1, fzd.aggValue2);
+    StreamRecord *record = new StreamRecord(vb);
+    keyedOp->processBatch(record);
 
-        BinaryRowData *row = BinaryRowData::createBinaryRowDataWithMem(2);
-        row->setLong(0, keyVal);
-        row->setLong(1, aggVal);
-
-        StreamRecord *record = new StreamRecord(reinterpret_cast<void *>(row));
-        keyedProcessOperator.setCurrentKey(row);
-        keyedProcessOperator.processElement(record);
-        delete record;
-    }
-
-    delete ctx;
+    delete record;
 }
 
-static void TestMaxAgg(const TableFuzzData &fzd, uint16_t loopCount)
+void TestGroupAggBatch(const GroupAggFuzzData& fzd)
 {
-    std::cout << "AggregateFuzz: MAX(BIGINT)" << std::endl;
+    std::cout << "TestGroupAggBatch" << std::endl;
 
-    json config = CreateGroupAggConfig(
-        "LongMaxAggFunction", "MAX($1)",
-        {"BIGINT", "BIGINT"}, {"BIGINT", "BIGINT"},
-        {0}, {1},
-        {"BIGINT"}, {"BIGINT"}, -1);
+    std::string description = AGG_DESC_AVG;
 
-    auto *groupAgg = new GroupAggFunction(1L, config);
-    auto *output = new OutputTest();
-    KeyedProcessOperator<RowData *, RowData *, RowData *> keyedProcessOperator(groupAgg, output, config);
-    keyedProcessOperator.setup();
+    json parsedJson = json::parse(description);
 
-    auto rowFields = CreateRowFields({"BIGINT", "BIGINT"});
-    auto *ctx = CreateRuntimeEnv("HashMapStateBackend", rowFields);
-    InitializeOperatorState(keyedProcessOperator, ctx);
-    keyedProcessOperator.open();
+    std::string uniqueName = "org.apache.flink.streaming.api.operators.KeyedProcessOperator";
+    omnistream::OperatorConfig opConfig(
+            uniqueName,
+            "Group_By_Simple",
+            parsedJson["operators"][0]["inputTypes"],
+            parsedJson["operators"][0]["outputTypes"],
+            parsedJson["operators"][0]["description"]
+    );
 
-    uint16_t count = (loopCount % 60) + 1;
-    for (uint16_t i = 0; i < count; ++i) {
-        int64_t keyVal = (fzd.longValue % 6) + 1;
-        int64_t aggVal = fzd.longValue2 * (static_cast<int64_t>(i) + 1);
+    BatchOutputTest* output = new BatchOutputTest();
+    GroupAggFunction *func = new GroupAggFunction(0l, opConfig.getDescription());
+    KeyedProcessOperator<RowData *, RowData*, RowData*> *keyedOp = new KeyedProcessOperator(func, output, opConfig.getDescription());
+    keyedOp->setup();
 
-        BinaryRowData *row = BinaryRowData::createBinaryRowDataWithMem(2);
-        row->setLong(0, keyVal);
-        row->setLong(1, aggVal);
+    auto env2 = new omnistream::RuntimeEnvironmentV2();
+    auto taskInfo = new TaskInformationPOD();
+    taskInfo->setStateBackend("HashMapStateBackend");
+    env2->setTaskConfiguration(*taskInfo);
+    StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
+    std::vector<omnistream::RowField> *typeInfo = new std::vector<omnistream::RowField>(
+        {omnistream::RowField("col0", BasicLogicalType::BIGINT), omnistream::RowField("col1", BasicLogicalType::BIGINT), omnistream::RowField("col2", BasicLogicalType::BIGINT)});
+    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, *typeInfo));
+    keyedOp->initializeState(initializer, ser);
+    keyedOp->open();
 
-        StreamRecord *record = new StreamRecord(reinterpret_cast<void *>(row));
-        keyedProcessOperator.setCurrentKey(row);
-        keyedProcessOperator.processElement(record);
-        delete record;
-    }
+    omnistream::VectorBatch* vb = createAggTestVectorBatch(fzd.loopCount, fzd.keyValue, fzd.aggValue1, fzd.aggValue2);
+    StreamRecord *record = new StreamRecord(vb);
+    keyedOp->processBatch(record);
 
-    delete ctx;
+    delete record;
 }
 
-static void TestMinAgg(const TableFuzzData &fzd, uint16_t loopCount)
+
+int GlobalGroupAggFuzz(struct GroupAggFuzzData fzd, std::string filterExpr, int32_t chooseFunc)
 {
-    std::cout << "AggregateFuzz: MIN(BIGINT)" << std::endl;
+    std::cout << "GroupAggFuzz: chooseFunc=" << chooseFunc
+              << ", aggFunctionType=" << fzd.aggFunctionType
+              << ", loopCount=" << fzd.loopCount << std::endl;
 
-    json config = CreateGroupAggConfig(
-        "LongMinAggFunction", "MIN($1)",
-        {"BIGINT", "BIGINT"}, {"BIGINT", "BIGINT"},
-        {0}, {1},
-        {"BIGINT"}, {"BIGINT"}, -1);
-
-    auto *groupAgg = new GroupAggFunction(1L, config);
-    auto *output = new OutputTest();
-    KeyedProcessOperator<RowData *, RowData *, RowData *> keyedProcessOperator(groupAgg, output, config);
-    keyedProcessOperator.setup();
-
-    auto rowFields = CreateRowFields({"BIGINT", "BIGINT"});
-    auto *ctx = CreateRuntimeEnv("HashMapStateBackend", rowFields);
-    InitializeOperatorState(keyedProcessOperator, ctx);
-    keyedProcessOperator.open();
-
-    uint16_t count = (loopCount % 60) + 1;
-    for (uint16_t i = 0; i < count; ++i) {
-        int64_t keyVal = (fzd.longValue % 4) + 1;
-        int64_t aggVal = fzd.longValue2 - static_cast<int64_t>(i * 3);
-
-        BinaryRowData *row = BinaryRowData::createBinaryRowDataWithMem(2);
-        row->setLong(0, keyVal);
-        row->setLong(1, aggVal);
-
-        StreamRecord *record = new StreamRecord(reinterpret_cast<void *>(row));
-        keyedProcessOperator.setCurrentKey(row);
-        keyedProcessOperator.processElement(record);
-        delete record;
+    switch (chooseFunc) {
+        case 1:
+            TestGroupAggBasic(fzd);
+            break;
+        case 2:
+            TestGroupAggWithRetract(fzd);
+            break;
+        case 3:
+            TestGroupAggBatch(fzd);
+            break;
+        default:
+            TestGroupAggBasic(fzd);
+            TestGroupAggWithRetract(fzd);
+            TestGroupAggBatch(fzd);
+            break;
     }
 
-    delete ctx;
-}
-
-int AggregateFuzz(struct TableFuzzData fzd, uint16_t loopCount, uint16_t chooseAgg)
-{
-    try {
-        switch (chooseAgg % 5) {
-            case 0:
-                TestSumAgg(fzd, loopCount);
-                break;
-            case 1:
-                TestCountAgg(fzd, loopCount);
-                break;
-            case 2:
-                TestAvgAgg(fzd, loopCount);
-                break;
-            case 3:
-                TestMaxAgg(fzd, loopCount);
-                break;
-            case 4:
-                TestMinAgg(fzd, loopCount);
-                break;
-            default:
-                break;
-        }
-    } catch (const std::exception &e) {
-        std::cerr << "AggregateFuzz exception: " << e.what() << std::endl;
-        return -1;
-    }
     return 0;
 }

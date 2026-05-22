@@ -1,18 +1,34 @@
 {
-    "suite": "StreamingOperatorFuzz",
-    "case": "SourceOperatorFuzz",
-    "description": "Fuzz tests for StreamSource operator covering source function config and split simulation",
-    "fuzz_function": "SourceOperatorFuzz",
-    "parameters": [
-        {"name": "fzd", "type": "SourceOperatorFuzzData"},
-        {"name": "loopCount", "type": "uint16_t"},
-        {"name": "chooseMode", "type": "uint16_t"}
-    ],
-    "test_points": [
-        {"id": "source_op_config", "description": "Source function config validation", "coverage": ["config", "sourceType", "schema", "batchSize"]},
-        {"id": "source_op_output", "description": "Source output VectorBatch simulation", "coverage": ["VectorBatch", "BIGINT", "INTEGER", "RowKind"]},
-        {"id": "source_op_splits", "description": "Multiple input splits simulation", "coverage": ["multipleSplits", "parallelism", "batchProcessing"]}
-    ],
-    "data_distributions": ["sequential", "random", "sparse"],
-    "boundary_conditions": ["single_split", "empty_split", "max_batch_size"]
+  "METADATA": {
+    "description": "MyFlink DT case",
+    "version": "1.0.0",
+    "author": "",
+    "date": "2026-05-22"
+  },
+  "DATA": [
+    {
+      "SourceOperatorFuzzData": {
+        "value1": 100,
+        "value2": 200,
+        "loopCount": 50,
+        "fieldCount": 3,
+        "filePath": "/tmp/test.csv",
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 1
+    }
+  ],
+  "TEST": [
+    {
+      "SUITE_NAME": "suite-01",
+      "CASES": [
+        {
+          "id": "case1",
+          "apiName": "GlobalSourceOperatorFuzz($SourceOperatorFuzzData, $filterExpr, $chooseFunc)",
+          "exeMode": "fuzz"
+        }
+      ]
+    }
+  ]
 }

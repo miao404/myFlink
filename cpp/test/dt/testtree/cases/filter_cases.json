@@ -1,18 +1,34 @@
 {
-    "suite": "StreamingOperatorFuzz",
-    "case": "FilterFuzz",
-    "description": "Fuzz tests for StreamFilter covering UDF config validation and data construction",
-    "fuzz_function": "FilterFuzz",
-    "parameters": [
-        {"name": "fzd", "type": "FilterFuzzData"},
-        {"name": "loopCount", "type": "uint16_t"},
-        {"name": "chooseMode", "type": "uint16_t"}
-    ],
-    "test_points": [
-        {"id": "filter_config", "description": "UDF config validation (udf_so, udf_obj)", "coverage": ["config", "udf_so", "udf_obj"]},
-        {"id": "filter_vectorbatch", "description": "VectorBatch input construction", "coverage": ["VectorBatch", "BIGINT", "RowKind"]},
-        {"id": "filter_boolean", "description": "Boolean filter data simulation", "coverage": ["boolean", "even_odd", "filtering"]}
-    ],
-    "data_distributions": ["all_pass", "all_reject", "mixed"],
-    "boundary_conditions": ["empty_input", "single_element", "max_batch"]
+  "METADATA": {
+    "description": "MyFlink DT case",
+    "version": "1.0.0",
+    "author": "",
+    "date": "2026-05-22"
+  },
+  "DATA": [
+    {
+      "FilterFuzzData": {
+        "value1": 100,
+        "value2": 200,
+        "value3": 300,
+        "loopCount": 50,
+        "rowKind": 0,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 1
+    }
+  ],
+  "TEST": [
+    {
+      "SUITE_NAME": "suite-01",
+      "CASES": [
+        {
+          "id": "case1",
+          "apiName": "GlobalFilterFuzz($FilterFuzzData, $filterExpr, $chooseFunc)",
+          "exeMode": "fuzz"
+        }
+      ]
+    }
+  ]
 }

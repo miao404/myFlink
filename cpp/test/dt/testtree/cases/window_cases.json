@@ -1,17 +1,34 @@
 {
-    "suite": "TableOperatorFuzz",
-    "case": "WindowFuzz",
-    "description": "Fuzz tests for AggregateWindowOperator covering tumbling windows with CountAgg",
-    "fuzz_function": "WindowFuzz",
-    "parameters": [
-        {"name": "fzd", "type": "WindowFuzzData"},
-        {"name": "loopCount", "type": "uint16_t"},
-        {"name": "chooseMode", "type": "uint16_t"}
-    ],
-    "test_points": [
-        {"id": "window_tumbling_count", "description": "TumblingWindow with CountAgg", "coverage": ["TumblingWindow", "CountAgg", "processBatch"]},
-        {"id": "window_multiple_batches", "description": "Multiple batches crossing window boundaries", "coverage": ["windowCrossing", "multipleBatches", "timestamps"]}
-    ],
-    "data_distributions": ["sequential_timestamps", "random_timestamps", "clustered"],
-    "boundary_conditions": ["window_boundary", "single_element_window", "large_window"]
+  "METADATA": {
+    "description": "MyFlink DT case",
+    "version": "1.0.0",
+    "author": "",
+    "date": "2026-05-22"
+  },
+  "DATA": [
+    {
+      "WindowFuzzData": {
+        "bidderValue": 1,
+        "timestampValue": 1000,
+        "windowSize": 5000,
+        "loopCount": 50,
+        "rowKind": 0,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 1
+    }
+  ],
+  "TEST": [
+    {
+      "SUITE_NAME": "suite-01",
+      "CASES": [
+        {
+          "id": "case1",
+          "apiName": "GlobalWindowFuzz($WindowFuzzData, $filterExpr, $chooseFunc)",
+          "exeMode": "fuzz"
+        }
+      ]
+    }
+  ]
 }

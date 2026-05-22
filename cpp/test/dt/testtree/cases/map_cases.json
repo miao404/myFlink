@@ -1,18 +1,32 @@
 {
-    "suite": "StreamingOperatorFuzz",
-    "case": "MapFuzz",
-    "description": "Fuzz tests for StreamMap covering UDF config validation and I/O data construction",
-    "fuzz_function": "MapFuzz",
-    "parameters": [
-        {"name": "fzd", "type": "MapFuzzData"},
-        {"name": "loopCount", "type": "uint16_t"},
-        {"name": "chooseMode", "type": "uint16_t"}
-    ],
-    "test_points": [
-        {"id": "map_config", "description": "UDF config validation (udf_so, udf_obj)", "coverage": ["config", "udf_so", "udf_obj"]},
-        {"id": "map_input", "description": "VectorBatch input construction", "coverage": ["VectorBatch", "BIGINT", "RowKind"]},
-        {"id": "map_output", "description": "Simulated map output construction", "coverage": ["input_output", "transformation", "1to1"]}
-    ],
-    "data_distributions": ["uniform", "sequential", "random"],
-    "boundary_conditions": ["identity_map", "single_element", "overflow_values"]
+  "METADATA": {
+    "description": "MyFlink DT case",
+    "version": "1.0.0",
+    "author": "",
+    "date": "2026-05-22"
+  },
+  "DATA": [
+    {
+      "MapFuzzData": {
+        "value1": 100,
+        "value2": 200,
+        "loopCount": 50,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 1
+    }
+  ],
+  "TEST": [
+    {
+      "SUITE_NAME": "suite-01",
+      "CASES": [
+        {
+          "id": "case1",
+          "apiName": "GlobalMapFuzz($MapFuzzData, $filterExpr, $chooseFunc)",
+          "exeMode": "fuzz"
+        }
+      ]
+    }
+  ]
 }

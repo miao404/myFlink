@@ -1,137 +1,105 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
- * Description: Fuzz test for ProcessOperator (LookupJoinRunner) covering
- *              VectorBatch-based processBatch with multiple BIGINT columns.
- *              Reference UT: ProcessOperatorTest.cpp
- */
-
-#include "streaming_fuzz_wrapper.h"
-#include "dt_fuzz_data.h"
-
+#include "fuzz_wrapper.h"
+#include "streaming/runtime/streamrecord/StreamRecord.h"
+#include "streaming/api/operators/ProcessOperator.h"
+#include "test/core/operators/OutputTest.h"
+#include "table/data/RowKind.h"
 #include <nlohmann/json.hpp>
-#include <vector>
 #include <iostream>
 
-#include "streaming/api/operators/ProcessOperator.h"
-#include "streaming/runtime/streamrecord/StreamRecord.h"
-#include "table/data/vectorbatch/VectorBatch.h"
-#include "core/operators/OutputTest.h"
-#include <test/util/test_util.h>
-
+using namespace omnistream;
 using json = nlohmann::json;
 
-static void TestProcessOperatorBasic(const ProcessFuzzData &fzd, uint16_t loopCount)
+omnistream::VectorBatch* createProcessTestVectorBatch(int rowCount, int64_t v1, int64_t v2, int64_t v3, int64_t v4, int64_t lookupKey)
 {
-    std::cout << "ProcessFuzz: Basic VectorBatch processing" << std::endl;
+    omnistream::VectorBatch* vb = new omnistream::VectorBatch(rowCount);
+    auto col0 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col1 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col2 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col3 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col4 = new omniruntime::vec::Vector<int64_t>(rowCount);
 
-    int rowCnt = (loopCount % 20) + 2;
-    std::vector<long> col0(rowCnt);
-    std::vector<long> col1(rowCnt);
-    std::vector<long> col2(rowCnt);
-    std::vector<long> col3(rowCnt);
-    std::vector<long> col4(rowCnt);
-
-    for (int i = 0; i < rowCnt; ++i) {
-        col0[i] = fzd.col0 + static_cast<long>(i + 1);
-        col1[i] = fzd.col1 + static_cast<long>(i + 2);
-        col2[i] = fzd.col2 + static_cast<long>(i + 3);
-        col3[i] = fzd.col3 + static_cast<long>(i + 4);
-        col4[i] = fzd.col4 + static_cast<long>(i + 421);
-    }
-
-    omnistream::VectorBatch *vb = new omnistream::VectorBatch(rowCnt);
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col1.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col2.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col3.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col4.data()));
-
-    StreamRecord *record = new StreamRecord(vb);
-    delete record;
-}
-
-static void TestProcessOperatorVaryingColumns(const ProcessFuzzData &fzd, uint16_t loopCount)
-{
-    std::cout << "ProcessFuzz: Varying column count VectorBatch" << std::endl;
-
-    int rowCnt = (loopCount % 15) + 3;
-    int numCols = 3;
-
-    omnistream::VectorBatch *vb = new omnistream::VectorBatch(rowCnt);
-
-    std::vector<long> col0(rowCnt);
-    std::vector<long> col1(rowCnt);
-    std::vector<long> col2(rowCnt);
-
-    for (int i = 0; i < rowCnt; ++i) {
-        col0[i] = (fzd.col0 + static_cast<long>(i)) % 100;
-        col1[i] = (fzd.col1 + static_cast<long>(i)) % 200;
-        col2[i] = (fzd.col2 + static_cast<long>(i)) % 300;
-    }
-
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col1.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col2.data()));
-
-    for (int i = 0; i < rowCnt; ++i) {
+    for (int i = 0; i < rowCount; i++) {
+        col0->SetValue(i, v1 + i);
+        col1->SetValue(i, v2 + i);
+        col2->SetValue(i, v3 + i);
+        col3->SetValue(i, v4 + i);
+        col4->SetValue(i, lookupKey + i);
         vb->setRowKind(i, RowKind::INSERT);
     }
 
+    vb->Append(col0);
+    vb->Append(col1);
+    vb->Append(col2);
+    vb->Append(col3);
+    vb->Append(col4);
+
+    return vb;
+}
+
+static const std::string PROCESS_DESC = R"JSON({"name":"LookupJoin","description":{"inputTypes":["BIGINT","BIGINT","BIGINT","BIGINT","BIGINT"],"outputTypes":["BIGINT","BIGINT","BIGINT","BIGINT","BIGINT"],"lookupKeys":[4],"resultFieldIndex":[0,1,2,3,4]},"id":"org.apache.flink.streaming.api.operators.ProcessOperator"})JSON";
+
+void TestProcessBasic(const ProcessFuzzData& fzd)
+{
+    std::cout << "TestProcessBasic" << std::endl;
+
+    json parsedJson = json::parse(PROCESS_DESC);
+
+    BatchOutputTest* output = new BatchOutputTest();
+    ProcessOperator *processOp = new ProcessOperator(parsedJson, output);
+    processOp->open();
+
+    omnistream::VectorBatch* vb = createProcessTestVectorBatch(fzd.loopCount, fzd.value1, fzd.value2, fzd.value3, fzd.value4, fzd.lookupKey);
     StreamRecord *record = new StreamRecord(vb);
+    processOp->processBatch(record);
+
     delete record;
 }
 
-static void TestProcessOperatorLargeBatch(const ProcessFuzzData &fzd, uint16_t loopCount)
+void TestProcessMultiBatch(const ProcessFuzzData& fzd)
 {
-    std::cout << "ProcessFuzz: Large batch processing" << std::endl;
+    std::cout << "TestProcessMultiBatch" << std::endl;
 
-    int rowCnt = (loopCount % 50) + 10;
+    json parsedJson = json::parse(PROCESS_DESC);
 
-    omnistream::VectorBatch *vb = new omnistream::VectorBatch(rowCnt);
+    BatchOutputTest* output = new BatchOutputTest();
+    ProcessOperator *processOp = new ProcessOperator(parsedJson, output);
+    processOp->open();
 
-    std::vector<long> col0(rowCnt);
-    std::vector<long> col1(rowCnt);
-    std::vector<long> col2(rowCnt);
-    std::vector<long> col3(rowCnt);
-    std::vector<long> col4(rowCnt);
-
-    for (int i = 0; i < rowCnt; ++i) {
-        col0[i] = fzd.col0 * static_cast<long>(i + 1);
-        col1[i] = fzd.col1 + static_cast<long>(i * 3);
-        col2[i] = fzd.col2 - static_cast<long>(i * 2);
-        col3[i] = fzd.col3 + static_cast<long>(i * 5);
-        col4[i] = fzd.col4 + static_cast<long>(i * 7);
+    for (int batch = 0; batch < 3; batch++) {
+        omnistream::VectorBatch* vb = createProcessTestVectorBatch(fzd.loopCount, fzd.value1 + batch * 100, fzd.value2, fzd.value3, fzd.value4, fzd.lookupKey);
+        processOp->processBatch(new StreamRecord(vb));
     }
-
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col1.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col2.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col3.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col4.data()));
-
-    StreamRecord *record = new StreamRecord(vb);
-    delete record;
 }
 
-int ProcessFuzz(struct ProcessFuzzData fzd, uint16_t loopCount, uint16_t chooseMode)
+void TestProcessLargeScale(const ProcessFuzzData& fzd)
 {
-    try {
-        switch (chooseMode % 3) {
-            case 0:
-                TestProcessOperatorBasic(fzd, loopCount);
-                break;
-            case 1:
-                TestProcessOperatorVaryingColumns(fzd, loopCount);
-                break;
-            case 2:
-                TestProcessOperatorLargeBatch(fzd, loopCount);
-                break;
-            default:
-                break;
-        }
-    } catch (const std::exception &e) {
-        std::cerr << "ProcessFuzz exception: " << e.what() << std::endl;
-        return -1;
+    std::cout << "TestProcessLargeScale" << std::endl;
+
+    json parsedJson = json::parse(PROCESS_DESC);
+
+    BatchOutputTest* output = new BatchOutputTest();
+    ProcessOperator *processOp = new ProcessOperator(parsedJson, output);
+    processOp->open();
+
+    int scaleCount = fzd.loopCount > 0 ? fzd.loopCount : 100;
+    omnistream::VectorBatch* vb = createProcessTestVectorBatch(scaleCount, fzd.value1, fzd.value2, fzd.value3, fzd.value4, fzd.lookupKey);
+    processOp->processBatch(new StreamRecord(vb));
+}
+
+int GlobalProcessFuzz(struct ProcessFuzzData fzd, std::string filterExpr, int32_t chooseFunc)
+{
+    std::cout << "ProcessFuzz: chooseFunc=" << chooseFunc
+              << ", loopCount=" << fzd.loopCount << std::endl;
+
+    switch (chooseFunc) {
+        case 1: TestProcessBasic(fzd); break;
+        case 2: TestProcessMultiBatch(fzd); break;
+        case 3: TestProcessLargeScale(fzd); break;
+        default:
+            TestProcessBasic(fzd);
+            TestProcessMultiBatch(fzd);
+            TestProcessLargeScale(fzd);
+            break;
     }
     return 0;
 }

@@ -1,153 +1,94 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
- * Description: Fuzz test for WatermarkAssignerOperator (P0 priority) covering
- *              various event time distributions, out-of-order tolerance, and
- *              emission intervals.
- *              Reference UT: WatermarkAssignerOperatorTest.cpp
- */
-
-#include "table_fuzz_wrapper.h"
-#include "dt_fuzz_data.h"
-
+#include "fuzz_wrapper.h"
+#include "streaming/runtime/streamrecord/StreamRecord.h"
+#include "streaming/api/operators/WatermarkAssignerOperator.h"
+#include "test/core/operators/OutputTest.h"
+#include "table/data/RowKind.h"
 #include <nlohmann/json.hpp>
-#include <vector>
 #include <iostream>
 
-#include "streaming/api/operators/WatermarkAssignerOperator.h"
-#include "streaming/runtime/streamrecord/StreamRecord.h"
-#include "table/data/vectorbatch/VectorBatch.h"
-#include "core/operators/OutputTest.h"
-#include "streaming/api/operators/SystemProcessingTimeService.h"
-#include <test/util/test_util.h>
-
+using namespace omnistream;
 using json = nlohmann::json;
 
-static void TestWatermarkBasic(const WatermarkAssignerFuzzData &fzd, uint16_t loopCount)
+omnistream::VectorBatch* createWatermarkTestVectorBatch(int rowCount, int64_t timestampValue, int64_t dataValue)
 {
-    std::cout << "WatermarkAssignerFuzz: Basic processBatch" << std::endl;
+    omnistream::VectorBatch* vb = new omnistream::VectorBatch(rowCount);
+    auto col0 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col1 = new omniruntime::vec::Vector<int64_t>(rowCount);
 
-    int timeRowIndex = 0;
-    long outOfOrderT = std::abs(fzd.outOfOrderness % 10000) + 1;
-    long emissionInterval = std::abs(fzd.emissionInterval % 5000) + 100;
-
-    OutputTest *out = new OutputTest();
-    WatermarkAssignerOperator *op = new WatermarkAssignerOperator(
-        out, timeRowIndex, outOfOrderT, emissionInterval, new SystemProcessingTimeService());
-    op->open();
-
-    int rowCount = (loopCount % 20) + 2;
-    omnistream::VectorBatch vb(rowCount);
-
-    std::vector<long> eventTimes(rowCount);
-    std::vector<long> values(rowCount);
-    for (int i = 0; i < rowCount; ++i) {
-        eventTimes[i] = std::abs(fzd.eventTime) + static_cast<long>(i) * 100;
-        values[i] = fzd.eventTime2 + static_cast<long>(i);
+    for (int i = 0; i < rowCount; i++) {
+        col0->SetValue(i, timestampValue + i * 100);
+        col1->SetValue(i, dataValue + i);
+        vb->setRowKind(i, RowKind::INSERT);
     }
-    vb.Append(omniruntime::TestUtil::CreateVector(rowCount, eventTimes.data()));
-    vb.Append(omniruntime::TestUtil::CreateVector(rowCount, values.data()));
 
-    StreamRecord *record = new StreamRecord(&vb);
-    op->processBatch(record);
-    op->finish();
+    vb->Append(col0);
+    vb->Append(col1);
 
-    delete op;
-    delete out;
+    return vb;
 }
 
-static void TestWatermarkOutOfOrder(const WatermarkAssignerFuzzData &fzd, uint16_t loopCount)
+void TestWatermarkBasic(const WatermarkAssignerFuzzData& fzd)
 {
-    std::cout << "WatermarkAssignerFuzz: Out-of-order events" << std::endl;
+    std::cout << "TestWatermarkBasic" << std::endl;
 
-    int timeRowIndex = 0;
-    long outOfOrderT = std::abs(fzd.outOfOrderness % 8000) + 500;
-    long emissionInterval = std::abs(fzd.emissionInterval % 3000) + 200;
+    OutputTestVectorBatch* output = new OutputTestVectorBatch();
+    WatermarkAssignerOperator *wmOp = new WatermarkAssignerOperator(
+        output, fzd.timeRowIndex, fzd.outOfOrderTime, fzd.emissionInterval, nullptr);
+    wmOp->open();
 
-    OutputTest *out = new OutputTest();
-    WatermarkAssignerOperator *op = new WatermarkAssignerOperator(
-        out, timeRowIndex, outOfOrderT, emissionInterval, new SystemProcessingTimeService());
-    op->open();
+    omnistream::VectorBatch* vb = createWatermarkTestVectorBatch(fzd.loopCount, fzd.timestampValue, fzd.dataValue);
+    StreamRecord *record = new StreamRecord(vb);
+    wmOp->processBatch(record);
 
-    int rowCount = (loopCount % 15) + 3;
-    omnistream::VectorBatch vb(rowCount);
-
-    std::vector<long> eventTimes(rowCount);
-    std::vector<long> values(rowCount);
-    for (int i = 0; i < rowCount; ++i) {
-        // Simulate out-of-order: even indices go forward, odd go backward
-        if (i % 2 == 0) {
-            eventTimes[i] = std::abs(fzd.eventTime) + static_cast<long>(i) * 200;
-        } else {
-            eventTimes[i] = std::abs(fzd.eventTime) + static_cast<long>(i - 2) * 200;
-        }
-        values[i] = fzd.eventTime2 + static_cast<long>(i) * 10;
-    }
-    vb.Append(omniruntime::TestUtil::CreateVector(rowCount, eventTimes.data()));
-    vb.Append(omniruntime::TestUtil::CreateVector(rowCount, values.data()));
-
-    StreamRecord *record = new StreamRecord(&vb);
-    op->processBatch(record);
-    op->finish();
-
-    delete op;
-    delete out;
+    delete record;
 }
 
-static void TestWatermarkMultipleBatches(const WatermarkAssignerFuzzData &fzd, uint16_t loopCount)
+void TestWatermarkOutOfOrder(const WatermarkAssignerFuzzData& fzd)
 {
-    std::cout << "WatermarkAssignerFuzz: Multiple batches" << std::endl;
+    std::cout << "TestWatermarkOutOfOrder" << std::endl;
 
-    int timeRowIndex = 0;
-    long outOfOrderT = std::abs(fzd.outOfOrderness % 5000) + 100;
-    long emissionInterval = std::abs(fzd.emissionInterval % 2000) + 50;
+    OutputTestVectorBatch* output = new OutputTestVectorBatch();
+    WatermarkAssignerOperator *wmOp = new WatermarkAssignerOperator(
+        output, fzd.timeRowIndex, fzd.outOfOrderTime, fzd.emissionInterval, nullptr);
+    wmOp->open();
 
-    OutputTest *out = new OutputTest();
-    WatermarkAssignerOperator *op = new WatermarkAssignerOperator(
-        out, timeRowIndex, outOfOrderT, emissionInterval, new SystemProcessingTimeService());
-    op->open();
+    omnistream::VectorBatch* vb1 = createWatermarkTestVectorBatch(fzd.loopCount, fzd.timestampValue + 1000, fzd.dataValue);
+    wmOp->processBatch(new StreamRecord(vb1));
 
-    uint16_t batchCount = (loopCount % 5) + 2;
-    for (uint16_t b = 0; b < batchCount; ++b) {
-        int rowCount = (loopCount % 10) + 2;
-        omnistream::VectorBatch *vb = new omnistream::VectorBatch(rowCount);
-
-        std::vector<long> eventTimes(rowCount);
-        std::vector<long> values(rowCount);
-        for (int i = 0; i < rowCount; ++i) {
-            eventTimes[i] = std::abs(fzd.eventTime) + static_cast<long>(b * 5000 + i * 300);
-            values[i] = fzd.eventTime3 + static_cast<long>(b * rowCount + i);
-        }
-        vb->Append(omniruntime::TestUtil::CreateVector(rowCount, eventTimes.data()));
-        vb->Append(omniruntime::TestUtil::CreateVector(rowCount, values.data()));
-
-        StreamRecord *record = new StreamRecord(vb);
-        op->processBatch(record);
-    }
-    op->finish();
-
-    delete op;
-    delete out;
+    omnistream::VectorBatch* vb2 = createWatermarkTestVectorBatch(fzd.loopCount, fzd.timestampValue, fzd.dataValue);
+    wmOp->processBatch(new StreamRecord(vb2));
 }
 
-int WatermarkAssignerFuzz(struct WatermarkAssignerFuzzData fzd, uint16_t loopCount, uint16_t chooseMode)
+void TestWatermarkMultiBatch(const WatermarkAssignerFuzzData& fzd)
 {
-    try {
-        switch (chooseMode % 3) {
-            case 0:
-                TestWatermarkBasic(fzd, loopCount);
-                break;
-            case 1:
-                TestWatermarkOutOfOrder(fzd, loopCount);
-                break;
-            case 2:
-                TestWatermarkMultipleBatches(fzd, loopCount);
-                break;
-            default:
-                break;
-        }
-    } catch (const std::exception &e) {
-        std::cerr << "WatermarkAssignerFuzz exception: " << e.what() << std::endl;
-        return -1;
+    std::cout << "TestWatermarkMultiBatch" << std::endl;
+
+    OutputTestVectorBatch* output = new OutputTestVectorBatch();
+    WatermarkAssignerOperator *wmOp = new WatermarkAssignerOperator(
+        output, fzd.timeRowIndex, fzd.outOfOrderTime, fzd.emissionInterval, nullptr);
+    wmOp->open();
+
+    for (int batch = 0; batch < 5; batch++) {
+        omnistream::VectorBatch* vb = createWatermarkTestVectorBatch(fzd.loopCount, fzd.timestampValue + batch * 500, fzd.dataValue);
+        wmOp->processBatch(new StreamRecord(vb));
+    }
+}
+
+int GlobalWatermarkAssignerFuzz(struct WatermarkAssignerFuzzData fzd, std::string filterExpr, int32_t chooseFunc)
+{
+    std::cout << "WatermarkAssignerFuzz: chooseFunc=" << chooseFunc
+              << ", outOfOrderTime=" << fzd.outOfOrderTime
+              << ", loopCount=" << fzd.loopCount << std::endl;
+
+    switch (chooseFunc) {
+        case 1: TestWatermarkBasic(fzd); break;
+        case 2: TestWatermarkOutOfOrder(fzd); break;
+        case 3: TestWatermarkMultiBatch(fzd); break;
+        default:
+            TestWatermarkBasic(fzd);
+            TestWatermarkOutOfOrder(fzd);
+            TestWatermarkMultiBatch(fzd);
+            break;
     }
     return 0;
 }

@@ -1,125 +1,122 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
- * Description: Fuzz test for StreamFilter/StreamMap/StreamFlatMap operators
- *              covering UDF-based transformations with various data types.
- *
- * Note: StreamFilter/StreamMap/StreamFlatMap require UDF .so loading which is
- * not available in the DT fuzz environment. This file provides structural fuzz
- * test stubs that validate configuration parsing, data construction, and basic
- * setup paths without UDF loading.
- */
-
-#include "streaming_fuzz_wrapper.h"
-#include "dt_fuzz_data.h"
-#include "dt_fuzz_factory_util.h"
-#include "runtime_env_util.h"
-
+#include "fuzz_wrapper.h"
+#include "streaming/runtime/streamrecord/StreamRecord.h"
+#include "test/core/operators/OutputTest.h"
+#include "table/data/RowKind.h"
 #include <nlohmann/json.hpp>
-#include <vector>
 #include <iostream>
 
-#include "streaming/runtime/streamrecord/StreamRecord.h"
-#include "table/data/binary/BinaryRowData.h"
-#include "table/typeutils/RowDataSerializer.h"
-#include "core/operators/OutputTest.h"
-#include "runtime/taskmanager/OmniRuntimeEnvironment.h"
-#include "core/api/common/TaskInfoImpl.h"
-
+using namespace omnistream;
 using json = nlohmann::json;
-using namespace DtFuzzFactoryUtil;
-using namespace DtRuntimeEnvUtil;
 
-static void TestFilterConfigAndData(const StreamingFuzzData &fzd, uint16_t loopCount)
+omnistream::VectorBatch* createTransformTestVectorBatch(int rowCount, int64_t value1, int64_t value2, int64_t value3, int32_t rowKindVal)
 {
-    std::cout << "TransformFuzz: StreamFilter config and data construction" << std::endl;
+    omnistream::VectorBatch* vb = new omnistream::VectorBatch(rowCount);
+    auto col0 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col1 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col2 = new omniruntime::vec::Vector<int64_t>(rowCount);
 
-    json config;
-    config["operatorType"] = "StreamFilter";
-    config["inputTypes"] = {"BIGINT", "BIGINT"};
-    config["outputTypes"] = {"BIGINT", "BIGINT"};
-    config["filterCondition"] = "col0 > 0";
+    RowKind rk = RowKind::INSERT;
+    if (rowKindVal == 1) rk = RowKind::UPDATE_AFTER;
+    else if (rowKindVal == 2) rk = RowKind::UPDATE_BEFORE;
+    else if (rowKindVal == 3) rk = RowKind::DELETE;
 
-    std::string configStr = config.dump();
-    json parsed = json::parse(configStr);
-
-    uint16_t count = (loopCount % 50) + 1;
-    for (uint16_t i = 0; i < count; ++i) {
-        BinaryRowData *row = BinaryRowData::createBinaryRowDataWithMem(2);
-        row->setLong(0, (fzd.longValue + static_cast<int64_t>(i)) % 100);
-        row->setLong(1, fzd.longValue2 + static_cast<int64_t>(i) * 13);
-
-        StreamRecord *record = new StreamRecord(reinterpret_cast<void *>(row));
-        delete record;
+    for (int i = 0; i < rowCount; i++) {
+        col0->SetValue(i, value1 + i);
+        col1->SetValue(i, value2 + i);
+        col2->SetValue(i, value3 + i);
+        vb->setRowKind(i, rk);
     }
+
+    vb->Append(col0);
+    vb->Append(col1);
+    vb->Append(col2);
+
+    return vb;
 }
 
-static void TestMapConfigAndData(const StreamingFuzzData &fzd, uint16_t loopCount)
+void TestTransformFilter(const TransformFuzzData& fzd)
 {
-    std::cout << "TransformFuzz: StreamMap config and data construction" << std::endl;
+    std::cout << "TestTransformFilter" << std::endl;
 
-    json config;
-    config["operatorType"] = "StreamMap";
-    config["inputTypes"] = {"BIGINT", "BIGINT"};
-    config["outputTypes"] = {"BIGINT"};
-    config["mapExpression"] = "col0 + col1";
+    std::string configStr = R"JSON({
+        "name": "StreamFilter",
+        "description": {
+            "inputTypes": ["BIGINT", "BIGINT", "BIGINT"],
+            "outputTypes": ["BIGINT", "BIGINT", "BIGINT"],
+            "filterCondition": "col0 > 0"
+        },
+        "id": "StreamFilter"
+    })JSON";
 
-    std::string configStr = config.dump();
-    json parsed = json::parse(configStr);
+    json parsedJson = json::parse(configStr);
+    std::cout << "Transform-Filter config parsed: " << parsedJson["name"] << std::endl;
 
-    uint16_t count = (loopCount % 40) + 1;
-    for (uint16_t i = 0; i < count; ++i) {
-        BinaryRowData *row = BinaryRowData::createBinaryRowDataWithMem(2);
-        row->setLong(0, fzd.longValue + static_cast<int64_t>(i));
-        row->setLong(1, fzd.longValue2 - static_cast<int64_t>(i) * 2);
+    omnistream::VectorBatch* vb = createTransformTestVectorBatch(fzd.loopCount, fzd.value1, fzd.value2, fzd.value3, fzd.rowKind);
+    std::cout << "Transform-Filter VectorBatch created with " << fzd.loopCount << " rows" << std::endl;
 
-        StreamRecord *record = new StreamRecord(reinterpret_cast<void *>(row));
-        delete record;
-    }
+    delete vb;
 }
 
-static void TestFlatMapConfigAndData(const StreamingFuzzData &fzd, uint16_t loopCount)
+void TestTransformMap(const TransformFuzzData& fzd)
 {
-    std::cout << "TransformFuzz: StreamFlatMap config and data construction" << std::endl;
+    std::cout << "TestTransformMap" << std::endl;
 
-    json config;
-    config["operatorType"] = "StreamFlatMap";
-    config["inputTypes"] = {"BIGINT", "BIGINT"};
-    config["outputTypes"] = {"BIGINT"};
-    config["flatMapExpression"] = "explode(col0)";
+    std::string configStr = R"JSON({
+        "name": "StreamMap",
+        "description": {
+            "inputTypes": ["BIGINT", "BIGINT", "BIGINT"],
+            "outputTypes": ["BIGINT", "BIGINT", "BIGINT"],
+            "udfClassName": "TestMapFunction"
+        },
+        "id": "StreamMap"
+    })JSON";
 
-    std::string configStr = config.dump();
-    json parsed = json::parse(configStr);
+    json parsedJson = json::parse(configStr);
+    std::cout << "Transform-Map config parsed: " << parsedJson["name"] << std::endl;
 
-    uint16_t count = (loopCount % 30) + 1;
-    for (uint16_t i = 0; i < count; ++i) {
-        BinaryRowData *row = BinaryRowData::createBinaryRowDataWithMem(2);
-        row->setLong(0, (fzd.longValue + static_cast<int64_t>(i)) % 50);
-        row->setLong(1, fzd.longValue2 + static_cast<int64_t>(i) * 7);
+    omnistream::VectorBatch* vb = createTransformTestVectorBatch(fzd.loopCount, fzd.value1, fzd.value2, fzd.value3, fzd.rowKind);
+    std::cout << "Transform-Map VectorBatch created with " << fzd.loopCount << " rows" << std::endl;
 
-        StreamRecord *record = new StreamRecord(reinterpret_cast<void *>(row));
-        delete record;
-    }
+    delete vb;
 }
 
-int TransformFuzz(struct StreamingFuzzData fzd, uint16_t loopCount, uint16_t chooseTransform)
+void TestTransformFlatMap(const TransformFuzzData& fzd)
 {
-    try {
-        switch (chooseTransform % 3) {
-            case 0:
-                TestFilterConfigAndData(fzd, loopCount);
-                break;
-            case 1:
-                TestMapConfigAndData(fzd, loopCount);
-                break;
-            case 2:
-                TestFlatMapConfigAndData(fzd, loopCount);
-                break;
-            default:
-                break;
-        }
-    } catch (const std::exception &e) {
-        std::cerr << "TransformFuzz exception: " << e.what() << std::endl;
-        return -1;
+    std::cout << "TestTransformFlatMap" << std::endl;
+
+    std::string configStr = R"JSON({
+        "name": "StreamFlatMap",
+        "description": {
+            "inputTypes": ["BIGINT", "BIGINT", "BIGINT"],
+            "outputTypes": ["BIGINT", "BIGINT", "BIGINT"]
+        },
+        "id": "StreamFlatMap"
+    })JSON";
+
+    json parsedJson = json::parse(configStr);
+    std::cout << "Transform-FlatMap config parsed: " << parsedJson["name"] << std::endl;
+
+    omnistream::VectorBatch* vb = createTransformTestVectorBatch(fzd.loopCount, fzd.value1, fzd.value2, fzd.value3, fzd.rowKind);
+    std::cout << "Transform-FlatMap VectorBatch created with " << fzd.loopCount << " rows" << std::endl;
+
+    delete vb;
+}
+
+int GlobalTransformFuzz(struct TransformFuzzData fzd, std::string filterExpr, int32_t chooseFunc)
+{
+    std::cout << "TransformFuzz: chooseFunc=" << chooseFunc
+              << ", transformType=" << fzd.transformType
+              << ", loopCount=" << fzd.loopCount << std::endl;
+
+    switch (chooseFunc) {
+        case 1: TestTransformFilter(fzd); break;
+        case 2: TestTransformMap(fzd); break;
+        case 3: TestTransformFlatMap(fzd); break;
+        default:
+            TestTransformFilter(fzd);
+            TestTransformMap(fzd);
+            TestTransformFlatMap(fzd);
+            break;
     }
     return 0;
 }

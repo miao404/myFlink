@@ -1,18 +1,33 @@
 {
-    "suite": "StreamingOperatorFuzz",
-    "case": "FlatMapFuzz",
-    "description": "Fuzz tests for StreamFlatMap covering UDF config validation and multi-output simulation",
-    "fuzz_function": "FlatMapFuzz",
-    "parameters": [
-        {"name": "fzd", "type": "FlatMapFuzzData"},
-        {"name": "loopCount", "type": "uint16_t"},
-        {"name": "chooseMode", "type": "uint16_t"}
-    ],
-    "test_points": [
-        {"id": "flatmap_config", "description": "UDF config validation", "coverage": ["config", "udf_so", "udf_obj"]},
-        {"id": "flatmap_input", "description": "VectorBatch input construction", "coverage": ["VectorBatch", "BIGINT", "RowKind"]},
-        {"id": "flatmap_multi_output", "description": "Multiple output rows per input", "coverage": ["multiplier", "1to2", "1to3"]}
-    ],
-    "data_distributions": ["uniform", "varying_multiplier", "sequential"],
-    "boundary_conditions": ["zero_output", "single_input", "max_expansion"]
+  "METADATA": {
+    "description": "MyFlink DT case",
+    "version": "1.0.0",
+    "author": "",
+    "date": "2026-05-22"
+  },
+  "DATA": [
+    {
+      "FlatMapFuzzData": {
+        "value1": 100,
+        "value2": 200,
+        "loopCount": 50,
+        "outputCount": 3,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 1
+    }
+  ],
+  "TEST": [
+    {
+      "SUITE_NAME": "suite-01",
+      "CASES": [
+        {
+          "id": "case1",
+          "apiName": "GlobalFlatMapFuzz($FlatMapFuzzData, $filterExpr, $chooseFunc)",
+          "exeMode": "fuzz"
+        }
+      ]
+    }
+  ]
 }

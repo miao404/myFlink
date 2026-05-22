@@ -1,122 +1,89 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
- * Description: Fuzz test for StreamSource operator (DataStream source) covering
- *              source function configuration and output data construction.
- *              Reference UT: SourceTest.cpp (streaming source operators)
- */
-
-#include "streaming_fuzz_wrapper.h"
-#include "dt_fuzz_data.h"
-
+#include "fuzz_wrapper.h"
+#include "streaming/runtime/streamrecord/StreamRecord.h"
+#include "test/core/operators/OutputTest.h"
+#include "table/data/RowKind.h"
 #include <nlohmann/json.hpp>
-#include <vector>
 #include <iostream>
 
-#include "streaming/runtime/streamrecord/StreamRecord.h"
-#include "table/data/binary/BinaryRowData.h"
-#include "table/data/vectorbatch/VectorBatch.h"
-#include "core/operators/OutputTest.h"
-#include <test/util/test_util.h>
-
+using namespace omnistream;
 using json = nlohmann::json;
 
-static void TestSourceOperatorConfig(const SourceOperatorFuzzData &fzd, uint16_t loopCount)
+omnistream::VectorBatch* createSourceOpTestVectorBatch(int rowCount, int64_t value1, int64_t value2)
 {
-    std::cout << "SourceOperatorFuzz: Source function config validation" << std::endl;
+    omnistream::VectorBatch* vb = new omnistream::VectorBatch(rowCount);
+    auto col0 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col1 = new omniruntime::vec::Vector<int64_t>(rowCount);
 
-    json config;
-    config["sourceType"] = "InputFormatSourceFunction";
-    config["parallelism"] = 1;
-    config["inputFormat"] = "csv";
-    config["batchSize"] = (loopCount % 5000) + 100;
-
-    json schema;
-    schema["fieldNames"] = {"f0", "f1", "f2"};
-    schema["fieldTypes"] = {"BIGINT", "BIGINT", "INTEGER"};
-    config["schema"] = schema;
-
-    std::string configStr = config.dump();
-    json parsed = json::parse(configStr);
-
-    if (!parsed.contains("sourceType") || !parsed.contains("schema")) {
-        std::cerr << "SourceOperatorFuzz: Missing required config fields" << std::endl;
-    }
-}
-
-static void TestSourceOperatorOutput(const SourceOperatorFuzzData &fzd, uint16_t loopCount)
-{
-    std::cout << "SourceOperatorFuzz: Simulating source output VectorBatch" << std::endl;
-
-    int rowCnt = (loopCount % 30) + 2;
-    omnistream::VectorBatch *vb = new omnistream::VectorBatch(rowCnt);
-
-    std::vector<int64_t> col0(rowCnt);
-    std::vector<int64_t> col1(rowCnt);
-    std::vector<int64_t> col2(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        col0[i] = fzd.longField + static_cast<int64_t>(i);
-        col1[i] = fzd.longField2 + static_cast<int64_t>(i) * 100;
-        col2[i] = static_cast<int64_t>(fzd.intField) + static_cast<int64_t>(i);
-    }
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col1.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col2.data()));
-
-    for (int i = 0; i < rowCnt; ++i) {
+    for (int i = 0; i < rowCount; i++) {
+        col0->SetValue(i, value1 + i);
+        col1->SetValue(i, value2 + i);
         vb->setRowKind(i, RowKind::INSERT);
     }
 
-    StreamRecord *record = new StreamRecord(vb);
-    delete record;
+    vb->Append(col0);
+    vb->Append(col1);
+
+    return vb;
 }
 
-static void TestSourceOperatorMultipleSplits(const SourceOperatorFuzzData &fzd, uint16_t loopCount)
+static const std::string SOURCE_OP_DESC = R"JSON({"name":"StreamSource","description":{"inputTypes":["BIGINT","BIGINT"],"outputTypes":["BIGINT","BIGINT"],"sourceClassName":"CsvInputFormat","filePath":"/tmp/test.csv","fieldDelimiter":","},"id":"StreamSource"})JSON";
+
+void TestSourceOperatorBasic(const SourceOperatorFuzzData& fzd)
 {
-    std::cout << "SourceOperatorFuzz: Multiple input splits simulation" << std::endl;
+    std::cout << "TestSourceOperatorBasic" << std::endl;
 
-    uint16_t splitCount = (loopCount % 5) + 1;
+    json parsedJson = json::parse(SOURCE_OP_DESC);
+    std::cout << "SourceOperator config parsed: " << parsedJson["name"] << std::endl;
 
-    for (uint16_t s = 0; s < splitCount; ++s) {
-        int rowCnt = (loopCount % 15) + 2;
-        omnistream::VectorBatch *vb = new omnistream::VectorBatch(rowCnt);
+    omnistream::VectorBatch* vb = createSourceOpTestVectorBatch(fzd.loopCount, fzd.value1, fzd.value2);
+    std::cout << "SourceOperator VectorBatch created with " << fzd.loopCount << " rows" << std::endl;
 
-        std::vector<int64_t> col0(rowCnt);
-        std::vector<int64_t> col1(rowCnt);
-        for (int i = 0; i < rowCnt; ++i) {
-            col0[i] = fzd.longField + static_cast<int64_t>(s * 1000 + i);
-            col1[i] = fzd.longField2 + static_cast<int64_t>(s * 500 + i * 10);
+    delete vb;
+}
+
+void TestSourceOperatorMultiField(const SourceOperatorFuzzData& fzd)
+{
+    std::cout << "TestSourceOperatorMultiField" << std::endl;
+
+    omnistream::VectorBatch* vb = new omnistream::VectorBatch(fzd.loopCount);
+    for (int f = 0; f < fzd.fieldCount; f++) {
+        auto col = new omniruntime::vec::Vector<int64_t>(fzd.loopCount);
+        for (int i = 0; i < fzd.loopCount; i++) {
+            col->SetValue(i, fzd.value1 + f * 100 + i);
         }
-        vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-        vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col1.data()));
+        vb->Append(col);
+    }
 
-        for (int i = 0; i < rowCnt; ++i) {
-            vb->setRowKind(i, RowKind::INSERT);
-        }
+    std::cout << "SourceOperator multi-field VectorBatch: " << fzd.fieldCount << " fields" << std::endl;
 
-        StreamRecord *record = new StreamRecord(vb);
-        delete record;
+    delete vb;
+}
+
+void TestSourceOperatorMultiSplit(const SourceOperatorFuzzData& fzd)
+{
+    std::cout << "TestSourceOperatorMultiSplit" << std::endl;
+
+    for (int split = 0; split < 3; split++) {
+        omnistream::VectorBatch* vb = createSourceOpTestVectorBatch(fzd.loopCount, fzd.value1 + split * 1000, fzd.value2);
+        std::cout << "SourceOperator split " << split << " created" << std::endl;
+        delete vb;
     }
 }
 
-int SourceOperatorFuzz(struct SourceOperatorFuzzData fzd, uint16_t loopCount, uint16_t chooseMode)
+int GlobalSourceOperatorFuzz(struct SourceOperatorFuzzData fzd, std::string filterExpr, int32_t chooseFunc)
 {
-    try {
-        switch (chooseMode % 3) {
-            case 0:
-                TestSourceOperatorConfig(fzd, loopCount);
-                break;
-            case 1:
-                TestSourceOperatorOutput(fzd, loopCount);
-                break;
-            case 2:
-                TestSourceOperatorMultipleSplits(fzd, loopCount);
-                break;
-            default:
-                break;
-        }
-    } catch (const std::exception &e) {
-        std::cerr << "SourceOperatorFuzz exception: " << e.what() << std::endl;
-        return -1;
+    std::cout << "SourceOperatorFuzz: chooseFunc=" << chooseFunc
+              << ", loopCount=" << fzd.loopCount << std::endl;
+
+    switch (chooseFunc) {
+        case 1: TestSourceOperatorBasic(fzd); break;
+        case 2: TestSourceOperatorMultiField(fzd); break;
+        case 3: TestSourceOperatorMultiSplit(fzd); break;
+        default:
+            TestSourceOperatorBasic(fzd);
+            TestSourceOperatorMultiField(fzd);
+            TestSourceOperatorMultiSplit(fzd);
+            break;
     }
     return 0;
 }

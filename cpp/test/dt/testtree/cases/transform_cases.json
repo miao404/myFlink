@@ -1,51 +1,35 @@
 {
-    "suite": "StreamingOperatorFuzz",
-    "case": "TransformFuzz",
-    "description": "Fuzz tests for StreamFilter/StreamMap/StreamFlatMap covering config parsing and data construction",
-    "fuzz_function": "TransformFuzz",
-    "parameters": [
+  "METADATA": {
+    "description": "MyFlink DT case",
+    "version": "1.0.0",
+    "author": "",
+    "date": "2026-05-22"
+  },
+  "DATA": [
+    {
+      "TransformFuzzData": {
+        "value1": 100,
+        "value2": 200,
+        "value3": 300,
+        "loopCount": 50,
+        "transformType": 0,
+        "rowKind": 0,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 1
+    }
+  ],
+  "TEST": [
+    {
+      "SUITE_NAME": "suite-01",
+      "CASES": [
         {
-            "name": "fzd",
-            "type": "StreamingFuzzData"
-        },
-        {
-            "name": "loopCount",
-            "type": "uint16_t"
-        },
-        {
-            "name": "chooseTransform",
-            "type": "uint16_t"
+          "id": "case1",
+          "apiName": "GlobalTransformFuzz($TransformFuzzData, $filterExpr, $chooseFunc)",
+          "exeMode": "fuzz"
         }
-    ],
-    "test_points": [
-        {
-            "id": "transform_filter",
-            "description": "StreamFilter configuration parsing and BIGINT data construction",
-            "coverage": ["StreamFilter", "configParsing", "BinaryRowData", "BIGINT"]
-        },
-        {
-            "id": "transform_map",
-            "description": "StreamMap configuration parsing and BIGINT data construction",
-            "coverage": ["StreamMap", "configParsing", "BinaryRowData", "BIGINT"]
-        },
-        {
-            "id": "transform_flatmap",
-            "description": "StreamFlatMap configuration parsing and BIGINT data construction",
-            "coverage": ["StreamFlatMap", "configParsing", "BinaryRowData", "BIGINT"]
-        }
-    ],
-    "data_distributions": [
-        "positive_values",
-        "negative_values",
-        "mixed_values",
-        "sequential",
-        "random"
-    ],
-    "boundary_conditions": [
-        "single_row",
-        "zero_values",
-        "max_int64",
-        "min_int64",
-        "alternating_signs"
-    ]
+      ]
+    }
+  ]
 }

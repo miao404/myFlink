@@ -1,154 +1,107 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
- * Description: Fuzz test for StreamCalcBatch covering projection, filter conditions,
- *              and expression evaluation with various BIGINT column inputs.
- *              Reference UT: StreamCalcBatchTest.cpp
- */
-
-#include "streaming_fuzz_wrapper.h"
-#include "dt_fuzz_data.h"
-
+#include "fuzz_wrapper.h"
+#include "streaming/runtime/streamrecord/StreamRecord.h"
+#include "table/runtime/operators/calc/StreamCalcBatch.h"
+#include "test/core/operators/OutputTest.h"
+#include "table/data/RowKind.h"
 #include <nlohmann/json.hpp>
-#include <vector>
 #include <iostream>
 
-#include "table/runtime/operators/calc/StreamCalcBatch.h"
-#include "streaming/runtime/streamrecord/StreamRecord.h"
-#include "table/data/vectorbatch/VectorBatch.h"
-#include "core/operators/OutputTest.h"
-#include <test/util/test_util.h>
-
+using namespace omnistream;
 using json = nlohmann::json;
 
-static const std::string projectionDesc = R"DELIM({
-    "inputTypes": ["BIGINT", "BIGINT", "BIGINT"],
-    "outputTypes": ["BIGINT", "BIGINT"],
-    "calcProjection": [0, 2],
-    "calcCondition": null
-})DELIM";
-
-static const std::string filterDesc = R"DELIM({
-    "inputTypes": ["BIGINT", "BIGINT", "BIGINT"],
-    "outputTypes": ["BIGINT", "BIGINT", "BIGINT"],
-    "calcProjection": [0, 1, 2],
-    "calcCondition": {"op": ">", "field": 0, "value": 0}
-})DELIM";
-
-static void TestCalcProjection(const CalcFuzzData &fzd, uint16_t loopCount)
+omnistream::VectorBatch* createCalcTestVectorBatch(int rowCount, int64_t value1, int64_t value2, int64_t value3)
 {
-    std::cout << "CalcFuzz: Projection (select col0, col2)" << std::endl;
+    omnistream::VectorBatch* vb = new omnistream::VectorBatch(rowCount);
+    auto col0 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col1 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col2 = new omniruntime::vec::Vector<int64_t>(rowCount);
 
-    json parsedJson = json::parse(projectionDesc);
-    OutputTestVectorBatch *output = new OutputTestVectorBatch();
-    StreamCalcBatch streamCalcBatchOp(parsedJson, output);
-    streamCalcBatchOp.open();
-
-    int rowCnt = (loopCount % 20) + 2;
-    omnistream::VectorBatch *vb = new omnistream::VectorBatch(rowCnt);
-
-    std::vector<int64_t> col0(rowCnt);
-    std::vector<int64_t> col1(rowCnt);
-    std::vector<int64_t> col2(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        col0[i] = fzd.col0 + static_cast<int64_t>(i);
-        col1[i] = fzd.col1 + static_cast<int64_t>(i) * 2;
-        col2[i] = fzd.col2 + static_cast<int64_t>(i) * 3;
+    for (int i = 0; i < rowCount; i++) {
+        col0->SetValue(i, value1 + i);
+        col1->SetValue(i, value2 + i);
+        col2->SetValue(i, value3 + i);
+        vb->setRowKind(i, RowKind::INSERT);
     }
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col1.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col2.data()));
 
-    StreamRecord *record = new StreamRecord(vb);
-    streamCalcBatchOp.processBatch(record);
+    vb->Append(col0);
+    vb->Append(col1);
+    vb->Append(col2);
 
-    delete output;
+    return vb;
 }
 
-static void TestCalcFilter(const CalcFuzzData &fzd, uint16_t loopCount)
+static const std::string CALC_DESC_PROJ = R"JSON({"name":"Calc(select=[col0, col1])","description":{"originDescription":null,"inputTypes":["BIGINT","BIGINT","BIGINT"],"outputTypes":["BIGINT","BIGINT"],"indices":[{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":0},{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":1}],"condition":null},"id":"StreamExecCalc"})JSON";
+
+static const std::string CALC_DESC_FILTER = R"JSON({"name":"Calc(select=[col0, col1], where=[(col2 > 10)])","description":{"originDescription":null,"inputTypes":["BIGINT","BIGINT","BIGINT"],"outputTypes":["BIGINT","BIGINT"],"indices":[{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":0},{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":1}],"condition":{"exprType":"GREATER_THAN","dataType":1,"left":{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":2},"right":{"exprType":"LITERAL","dataType":9,"value":"10"}}},"id":"StreamExecCalc"})JSON";
+
+static const std::string CALC_DESC_EXPR = R"JSON({"name":"Calc(select=[(col0 + col1)])","description":{"originDescription":null,"inputTypes":["BIGINT","BIGINT","BIGINT"],"outputTypes":["BIGINT"],"indices":[{"exprType":"ADD","dataType":9,"left":{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":0},"right":{"exprType":"FIELD_REFERENCE","dataType":9,"colVal":1}}],"condition":null},"id":"StreamExecCalc"})JSON";
+
+void TestCalcProjection(const CalcFuzzData& fzd)
 {
-    std::cout << "CalcFuzz: Filter condition (col0 > 0)" << std::endl;
+    std::cout << "TestCalcProjection" << std::endl;
 
-    json parsedJson = json::parse(filterDesc);
-    OutputTestVectorBatch *output = new OutputTestVectorBatch();
-    StreamCalcBatch streamCalcBatchOp(parsedJson, output);
-    streamCalcBatchOp.open();
+    json parsedJson = json::parse(CALC_DESC_PROJ);
 
-    int rowCnt = (loopCount % 15) + 3;
-    omnistream::VectorBatch *vb = new omnistream::VectorBatch(rowCnt);
+    OutputTestVectorBatch* output = new OutputTestVectorBatch();
+    StreamCalcBatch calcOp(parsedJson, output);
+    calcOp.open();
 
-    std::vector<int64_t> col0(rowCnt);
-    std::vector<int64_t> col1(rowCnt);
-    std::vector<int64_t> col2(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        // Mix positive and negative values to test filter
-        col0[i] = fzd.col0 + static_cast<int64_t>(i) - static_cast<int64_t>(rowCnt / 2);
-        col1[i] = fzd.col1 + static_cast<int64_t>(i) * 5;
-        col2[i] = fzd.col2 - static_cast<int64_t>(i);
-    }
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col1.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col2.data()));
-
+    omnistream::VectorBatch* vb = createCalcTestVectorBatch(fzd.loopCount, fzd.value1, fzd.value2, fzd.value3);
     StreamRecord *record = new StreamRecord(vb);
-    streamCalcBatchOp.processBatch(record);
+    calcOp.processBatch(record);
 
-    delete output;
+    delete record;
 }
 
-static void TestCalcWithRowKind(const CalcFuzzData &fzd, uint16_t loopCount)
+void TestCalcWithFilter(const CalcFuzzData& fzd)
 {
-    std::cout << "CalcFuzz: Projection with RowKind variations" << std::endl;
+    std::cout << "TestCalcWithFilter" << std::endl;
 
-    json parsedJson = json::parse(projectionDesc);
-    OutputTestVectorBatch *output = new OutputTestVectorBatch();
-    StreamCalcBatch streamCalcBatchOp(parsedJson, output);
-    streamCalcBatchOp.open();
+    json parsedJson = json::parse(CALC_DESC_FILTER);
 
-    int rowCnt = (loopCount % 12) + 4;
-    omnistream::VectorBatch *vb = new omnistream::VectorBatch(rowCnt);
+    OutputTestVectorBatch* output = new OutputTestVectorBatch();
+    StreamCalcBatch calcOp(parsedJson, output);
+    calcOp.open();
 
-    std::vector<int64_t> col0(rowCnt);
-    std::vector<int64_t> col1(rowCnt);
-    std::vector<int64_t> col2(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        col0[i] = fzd.col0 * static_cast<int64_t>(i + 1);
-        col1[i] = fzd.col1 + static_cast<int64_t>(i * 7);
-        col2[i] = fzd.col2 + static_cast<int64_t>(i * 11);
-    }
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col1.data()));
-    vb->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col2.data()));
-
-    RowKind kinds[] = {RowKind::INSERT, RowKind::UPDATE_BEFORE, RowKind::UPDATE_AFTER, RowKind::DELETE};
-    for (int i = 0; i < rowCnt; ++i) {
-        vb->setRowKind(i, kinds[i % 4]);
-    }
-
+    omnistream::VectorBatch* vb = createCalcTestVectorBatch(fzd.loopCount, fzd.value1, fzd.value2, fzd.value3);
     StreamRecord *record = new StreamRecord(vb);
-    streamCalcBatchOp.processBatch(record);
+    calcOp.processBatch(record);
 
-    delete output;
+    delete record;
 }
 
-int CalcFuzz(struct CalcFuzzData fzd, uint16_t loopCount, uint16_t chooseMode)
+void TestCalcExpression(const CalcFuzzData& fzd)
 {
-    try {
-        switch (chooseMode % 3) {
-            case 0:
-                TestCalcProjection(fzd, loopCount);
-                break;
-            case 1:
-                TestCalcFilter(fzd, loopCount);
-                break;
-            case 2:
-                TestCalcWithRowKind(fzd, loopCount);
-                break;
-            default:
-                break;
-        }
-    } catch (const std::exception &e) {
-        std::cerr << "CalcFuzz exception: " << e.what() << std::endl;
-        return -1;
+    std::cout << "TestCalcExpression" << std::endl;
+
+    json parsedJson = json::parse(CALC_DESC_EXPR);
+
+    OutputTestVectorBatch* output = new OutputTestVectorBatch();
+    StreamCalcBatch calcOp(parsedJson, output);
+    calcOp.open();
+
+    omnistream::VectorBatch* vb = createCalcTestVectorBatch(fzd.loopCount, fzd.value1, fzd.value2, fzd.value3);
+    StreamRecord *record = new StreamRecord(vb);
+    calcOp.processBatch(record);
+
+    delete record;
+}
+
+int GlobalCalcFuzz(struct CalcFuzzData fzd, std::string filterExpr, int32_t chooseFunc)
+{
+    std::cout << "CalcFuzz: chooseFunc=" << chooseFunc
+              << ", exprType=" << fzd.exprType
+              << ", loopCount=" << fzd.loopCount << std::endl;
+
+    switch (chooseFunc) {
+        case 1: TestCalcProjection(fzd); break;
+        case 2: TestCalcWithFilter(fzd); break;
+        case 3: TestCalcExpression(fzd); break;
+        default:
+            TestCalcProjection(fzd);
+            TestCalcWithFilter(fzd);
+            TestCalcExpression(fzd);
+            break;
     }
     return 0;
 }

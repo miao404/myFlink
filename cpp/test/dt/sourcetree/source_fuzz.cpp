@@ -1,129 +1,98 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
- * Description: Fuzz test for table source operators (CsvInputFormat, InputSplit)
- *              covering CSV parsing with various field types and record counts.
- *              Reference UT: SourceTest.cpp (table/runtime/operator/source)
- */
-
-#include "table_fuzz_wrapper.h"
-#include "dt_fuzz_data.h"
-
-#include <nlohmann/json.hpp>
-#include <vector>
-#include <iostream>
-#include <fstream>
-
+#include "fuzz_wrapper.h"
 #include "streaming/runtime/streamrecord/StreamRecord.h"
-#include "table/data/vectorbatch/VectorBatch.h"
-#include <test/util/test_util.h>
+#include "test/core/operators/OutputTest.h"
+#include "table/data/RowKind.h"
+#include <nlohmann/json.hpp>
+#include <iostream>
 
+using namespace omnistream;
 using json = nlohmann::json;
 
-static void TestSourceConfigParsing(const SourceFuzzData &fzd, uint16_t loopCount)
+omnistream::VectorBatch* createSourceTestVectorBatch(int rowCount, int64_t value1, int64_t value2)
 {
-    std::cout << "SourceFuzz: Config parsing for CsvInputFormat" << std::endl;
+    omnistream::VectorBatch* vb = new omnistream::VectorBatch(rowCount);
+    auto col0 = new omniruntime::vec::Vector<int64_t>(rowCount);
+    auto col1 = new omniruntime::vec::Vector<int64_t>(rowCount);
 
-    json description;
-    description["format"] = "csv";
-    description["delimiter"] = nullptr;
-    description["filePath"] = "/tmp/fuzz_input.csv";
-    description["batchSize"] = 1000;
-
-    json schema;
-    schema["fieldNames"] = {"bid", "timestamp", "extra"};
-    schema["fieldTypes"] = {"BIGINT", "BIGINT", "BIGINT"};
-    description["schema"] = schema;
-
-    std::string configStr = description.dump();
-    json parsed = json::parse(configStr);
-
-    if (!parsed.contains("format") || !parsed.contains("schema")) {
-        std::cerr << "SourceFuzz: Missing required config fields" << std::endl;
+    for (int i = 0; i < rowCount; i++) {
+        col0->SetValue(i, value1 + i);
+        col1->SetValue(i, value2 + i);
+        vb->setRowKind(i, RowKind::INSERT);
     }
 
-    if (parsed["schema"]["fieldNames"].size() != parsed["schema"]["fieldTypes"].size()) {
-        std::cerr << "SourceFuzz: Schema field count mismatch" << std::endl;
-    }
+    vb->Append(col0);
+    vb->Append(col1);
+
+    return vb;
 }
 
-static void TestSourceDataConstruction(const SourceFuzzData &fzd, uint16_t loopCount)
+void TestSourceBasic(const SourceFuzzData& fzd)
 {
-    std::cout << "SourceFuzz: VectorBatch construction simulating source output" << std::endl;
+    std::cout << "TestSourceBasic" << std::endl;
 
-    int rowCnt = (loopCount % 30) + 2;
-    auto *vbatch = new omnistream::VectorBatch(rowCnt);
+    std::string configStr = R"JSON({
+        "name": "CsvTableSource",
+        "description": {
+            "inputTypes": ["BIGINT", "BIGINT"],
+            "outputTypes": ["BIGINT", "BIGINT"],
+            "filePath": "/tmp/test_source.csv",
+            "fieldDelimiter": ","
+        },
+        "id": "org.apache.flink.table.runtime.operators.source.SourceOperator"
+    })JSON";
 
-    std::vector<int64_t> col0(rowCnt);
-    std::vector<int64_t> col1(rowCnt);
-    std::vector<int64_t> col2(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        col0[i] = fzd.longField + static_cast<int64_t>(i);
-        col1[i] = fzd.longField2 + static_cast<int64_t>(i) * 100;
-        col2[i] = fzd.longField3 + static_cast<int64_t>(i) * 50;
-    }
-    vbatch->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-    vbatch->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col1.data()));
-    vbatch->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col2.data()));
+    json parsedJson = json::parse(configStr);
+    std::cout << "Source config parsed: " << parsedJson["name"] << std::endl;
 
-    for (int i = 0; i < rowCnt; ++i) {
-        vbatch->setRowKind(i, RowKind::INSERT);
-    }
+    omnistream::VectorBatch* vb = createSourceTestVectorBatch(fzd.loopCount, fzd.value1, fzd.value2);
+    std::cout << "Source VectorBatch created with " << fzd.loopCount << " rows" << std::endl;
 
-    StreamRecord *record = new StreamRecord(vbatch);
-    delete record;
+    delete vb;
 }
 
-static void TestSourceMultipleFormats(const SourceFuzzData &fzd, uint16_t loopCount)
+void TestSourceMultiField(const SourceFuzzData& fzd)
 {
-    std::cout << "SourceFuzz: Multiple format configuration validation" << std::endl;
+    std::cout << "TestSourceMultiField" << std::endl;
 
-    std::vector<std::string> formats = {"csv", "json", "parquet"};
-    uint8_t formatIdx = fzd.formatFlag % 3;
-    std::string selectedFormat = formats[formatIdx];
-
-    json description;
-    description["format"] = selectedFormat;
-    description["batchSize"] = (loopCount % 5000) + 100;
-
-    json schema;
-    schema["fieldNames"] = {"f0", "f1", "f2"};
-    schema["fieldTypes"] = {"BIGINT", "BIGINT", "BIGINT"};
-    description["schema"] = schema;
-
-    std::string configStr = description.dump();
-    json parsed = json::parse(configStr);
-
-    int rowCnt = (loopCount % 20) + 1;
-    auto *vbatch = new omnistream::VectorBatch(rowCnt);
-    std::vector<int64_t> col0(rowCnt);
-    for (int i = 0; i < rowCnt; ++i) {
-        col0[i] = fzd.longField + static_cast<int64_t>(i) * 7;
-    }
-    vbatch->Append(omniruntime::TestUtil::CreateVector<int64_t>(rowCnt, col0.data()));
-
-    StreamRecord *record = new StreamRecord(vbatch);
-    delete record;
-}
-
-int SourceFuzz(struct SourceFuzzData fzd, uint16_t loopCount, uint16_t chooseMode)
-{
-    try {
-        switch (chooseMode % 3) {
-            case 0:
-                TestSourceConfigParsing(fzd, loopCount);
-                break;
-            case 1:
-                TestSourceDataConstruction(fzd, loopCount);
-                break;
-            case 2:
-                TestSourceMultipleFormats(fzd, loopCount);
-                break;
-            default:
-                break;
+    omnistream::VectorBatch* vb = new omnistream::VectorBatch(fzd.loopCount);
+    for (int f = 0; f < fzd.fieldCount; f++) {
+        auto col = new omniruntime::vec::Vector<int64_t>(fzd.loopCount);
+        for (int i = 0; i < fzd.loopCount; i++) {
+            col->SetValue(i, fzd.value1 + f * 100 + i);
         }
-    } catch (const std::exception &e) {
-        std::cerr << "SourceFuzz exception: " << e.what() << std::endl;
-        return -1;
+        vb->Append(col);
+    }
+
+    std::cout << "Source multi-field VectorBatch created: " << fzd.fieldCount << " fields" << std::endl;
+
+    delete vb;
+}
+
+void TestSourceBatch(const SourceFuzzData& fzd)
+{
+    std::cout << "TestSourceBatch" << std::endl;
+
+    for (int batch = 0; batch < 3; batch++) {
+        omnistream::VectorBatch* vb = createSourceTestVectorBatch(fzd.loopCount, fzd.value1 + batch * 100, fzd.value2);
+        std::cout << "Source batch " << batch << " created" << std::endl;
+        delete vb;
+    }
+}
+
+int GlobalSourceFuzz(struct SourceFuzzData fzd, std::string filterExpr, int32_t chooseFunc)
+{
+    std::cout << "SourceFuzz: chooseFunc=" << chooseFunc
+              << ", loopCount=" << fzd.loopCount << std::endl;
+
+    switch (chooseFunc) {
+        case 1: TestSourceBasic(fzd); break;
+        case 2: TestSourceMultiField(fzd); break;
+        case 3: TestSourceBatch(fzd); break;
+        default:
+            TestSourceBasic(fzd);
+            TestSourceMultiField(fzd);
+            TestSourceBatch(fzd);
+            break;
     }
     return 0;
 }
