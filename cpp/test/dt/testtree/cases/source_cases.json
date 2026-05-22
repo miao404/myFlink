@@ -1,0 +1,18 @@
+{
+    "suite": "TableOperatorFuzz",
+    "case": "SourceFuzz",
+    "description": "Fuzz tests for table source operators (CsvInputFormat) covering config parsing and data construction",
+    "fuzz_function": "SourceFuzz",
+    "parameters": [
+        {"name": "fzd", "type": "SourceFuzzData"},
+        {"name": "loopCount", "type": "uint16_t"},
+        {"name": "chooseMode", "type": "uint16_t"}
+    ],
+    "test_points": [
+        {"id": "source_config_parsing", "description": "CsvInputFormat config validation", "coverage": ["config", "schema", "format"]},
+        {"id": "source_data_construction", "description": "VectorBatch output simulation", "coverage": ["VectorBatch", "BIGINT", "RowKind"]},
+        {"id": "source_multiple_formats", "description": "Multiple format configuration", "coverage": ["csv", "json", "parquet"]}
+    ],
+    "data_distributions": ["sequential", "random", "sparse"],
+    "boundary_conditions": ["empty_schema", "large_batch_size", "single_field"]
+}

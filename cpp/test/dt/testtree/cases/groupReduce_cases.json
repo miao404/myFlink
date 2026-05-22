@@ -1,0 +1,18 @@
+{
+    "suite": "StreamingOperatorFuzz",
+    "case": "GroupReduceFuzz",
+    "description": "Fuzz tests for StreamGroupedReduceOperator covering stateful reduce with state backend",
+    "fuzz_function": "GroupReduceFuzz",
+    "parameters": [
+        {"name": "fzd", "type": "GroupReduceFuzzData"},
+        {"name": "loopCount", "type": "uint16_t"},
+        {"name": "chooseMode", "type": "uint16_t"}
+    ],
+    "test_points": [
+        {"id": "groupreduce_config", "description": "Config parsing with UDF and key .so paths", "coverage": ["config", "udf_so", "key_so", "hash_path"]},
+        {"id": "groupreduce_state", "description": "State backend initialization with operatorId", "coverage": ["HashMapStateBackend", "TaskStateManager", "operatorId"]},
+        {"id": "groupreduce_data", "description": "Keyed VectorBatch data construction", "coverage": ["VectorBatch", "keyGrouping", "RowKind"]}
+    ],
+    "data_distributions": ["uniform_keys", "single_key", "high_cardinality"],
+    "boundary_conditions": ["new_key", "existing_key_update", "empty_state"]
+}

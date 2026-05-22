@@ -1,0 +1,18 @@
+{
+    "suite": "StreamingOperatorFuzz",
+    "case": "ExpandFuzz",
+    "description": "Fuzz tests for StreamExpand covering multi-projection expansion",
+    "fuzz_function": "ExpandFuzz",
+    "parameters": [
+        {"name": "fzd", "type": "ExpandFuzzData"},
+        {"name": "loopCount", "type": "uint16_t"},
+        {"name": "chooseMode", "type": "uint16_t"}
+    ],
+    "test_points": [
+        {"id": "expand_2proj", "description": "2 projection expansion", "coverage": ["2projections", "processBatch", "nullColumns"]},
+        {"id": "expand_3proj", "description": "3 projection expansion", "coverage": ["3projections", "multipleNull", "expandId"]},
+        {"id": "expand_rowkind", "description": "Expansion with RowKind variations", "coverage": ["RowKind", "INSERT", "UPDATE_AFTER", "DELETE"]}
+    ],
+    "data_distributions": ["uniform", "zero_filled", "increasing"],
+    "boundary_conditions": ["single_row_expand", "large_expansion", "all_null_projects"]
+}

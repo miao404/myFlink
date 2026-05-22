@@ -1,0 +1,18 @@
+{
+    "suite": "StreamingOperatorFuzz",
+    "case": "MapFuzz",
+    "description": "Fuzz tests for StreamMap covering UDF config validation and I/O data construction",
+    "fuzz_function": "MapFuzz",
+    "parameters": [
+        {"name": "fzd", "type": "MapFuzzData"},
+        {"name": "loopCount", "type": "uint16_t"},
+        {"name": "chooseMode", "type": "uint16_t"}
+    ],
+    "test_points": [
+        {"id": "map_config", "description": "UDF config validation (udf_so, udf_obj)", "coverage": ["config", "udf_so", "udf_obj"]},
+        {"id": "map_input", "description": "VectorBatch input construction", "coverage": ["VectorBatch", "BIGINT", "RowKind"]},
+        {"id": "map_output", "description": "Simulated map output construction", "coverage": ["input_output", "transformation", "1to1"]}
+    ],
+    "data_distributions": ["uniform", "sequential", "random"],
+    "boundary_conditions": ["identity_map", "single_element", "overflow_values"]
+}

@@ -1,0 +1,17 @@
+{
+    "suite": "TableOperatorFuzz",
+    "case": "WindowFuzz",
+    "description": "Fuzz tests for AggregateWindowOperator covering tumbling windows with CountAgg",
+    "fuzz_function": "WindowFuzz",
+    "parameters": [
+        {"name": "fzd", "type": "WindowFuzzData"},
+        {"name": "loopCount", "type": "uint16_t"},
+        {"name": "chooseMode", "type": "uint16_t"}
+    ],
+    "test_points": [
+        {"id": "window_tumbling_count", "description": "TumblingWindow with CountAgg", "coverage": ["TumblingWindow", "CountAgg", "processBatch"]},
+        {"id": "window_multiple_batches", "description": "Multiple batches crossing window boundaries", "coverage": ["windowCrossing", "multipleBatches", "timestamps"]}
+    ],
+    "data_distributions": ["sequential_timestamps", "random_timestamps", "clustered"],
+    "boundary_conditions": ["window_boundary", "single_element_window", "large_window"]
+}

@@ -1,0 +1,18 @@
+{
+    "suite": "StreamingOperatorFuzz",
+    "case": "ProcessFuzz",
+    "description": "Fuzz tests for ProcessOperator (LookupJoinRunner) covering VectorBatch processing",
+    "fuzz_function": "ProcessFuzz",
+    "parameters": [
+        {"name": "fzd", "type": "ProcessFuzzData"},
+        {"name": "loopCount", "type": "uint16_t"},
+        {"name": "chooseMode", "type": "uint16_t"}
+    ],
+    "test_points": [
+        {"id": "process_basic_5col", "description": "5-column VectorBatch processing", "coverage": ["VectorBatch", "5columns", "BIGINT"]},
+        {"id": "process_varying_cols", "description": "3-column VectorBatch with RowKind", "coverage": ["VectorBatch", "3columns", "RowKind"]},
+        {"id": "process_large_batch", "description": "Large batch processing", "coverage": ["largeBatch", "scalability"]}
+    ],
+    "data_distributions": ["sequential", "random", "skewed"],
+    "boundary_conditions": ["single_row", "max_columns", "zero_values"]
+}

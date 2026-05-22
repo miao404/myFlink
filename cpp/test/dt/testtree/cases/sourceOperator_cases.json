@@ -1,0 +1,18 @@
+{
+    "suite": "StreamingOperatorFuzz",
+    "case": "SourceOperatorFuzz",
+    "description": "Fuzz tests for StreamSource operator covering source function config and split simulation",
+    "fuzz_function": "SourceOperatorFuzz",
+    "parameters": [
+        {"name": "fzd", "type": "SourceOperatorFuzzData"},
+        {"name": "loopCount", "type": "uint16_t"},
+        {"name": "chooseMode", "type": "uint16_t"}
+    ],
+    "test_points": [
+        {"id": "source_op_config", "description": "Source function config validation", "coverage": ["config", "sourceType", "schema", "batchSize"]},
+        {"id": "source_op_output", "description": "Source output VectorBatch simulation", "coverage": ["VectorBatch", "BIGINT", "INTEGER", "RowKind"]},
+        {"id": "source_op_splits", "description": "Multiple input splits simulation", "coverage": ["multipleSplits", "parallelism", "batchProcessing"]}
+    ],
+    "data_distributions": ["sequential", "random", "sparse"],
+    "boundary_conditions": ["single_split", "empty_split", "max_batch_size"]
+}

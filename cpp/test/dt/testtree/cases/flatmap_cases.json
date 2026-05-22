@@ -1,0 +1,18 @@
+{
+    "suite": "StreamingOperatorFuzz",
+    "case": "FlatMapFuzz",
+    "description": "Fuzz tests for StreamFlatMap covering UDF config validation and multi-output simulation",
+    "fuzz_function": "FlatMapFuzz",
+    "parameters": [
+        {"name": "fzd", "type": "FlatMapFuzzData"},
+        {"name": "loopCount", "type": "uint16_t"},
+        {"name": "chooseMode", "type": "uint16_t"}
+    ],
+    "test_points": [
+        {"id": "flatmap_config", "description": "UDF config validation", "coverage": ["config", "udf_so", "udf_obj"]},
+        {"id": "flatmap_input", "description": "VectorBatch input construction", "coverage": ["VectorBatch", "BIGINT", "RowKind"]},
+        {"id": "flatmap_multi_output", "description": "Multiple output rows per input", "coverage": ["multiplier", "1to2", "1to3"]}
+    ],
+    "data_distributions": ["uniform", "varying_multiplier", "sequential"],
+    "boundary_conditions": ["zero_output", "single_input", "max_expansion"]
+}

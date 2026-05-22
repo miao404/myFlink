@@ -1,0 +1,18 @@
+{
+    "suite": "StreamingOperatorFuzz",
+    "case": "CalcFuzz",
+    "description": "Fuzz tests for StreamCalcBatch covering projection, filter, and expression evaluation",
+    "fuzz_function": "CalcFuzz",
+    "parameters": [
+        {"name": "fzd", "type": "CalcFuzzData"},
+        {"name": "loopCount", "type": "uint16_t"},
+        {"name": "chooseMode", "type": "uint16_t"}
+    ],
+    "test_points": [
+        {"id": "calc_projection", "description": "Column projection (select subset)", "coverage": ["projection", "processBatch", "open"]},
+        {"id": "calc_filter", "description": "Filter condition evaluation", "coverage": ["filter", "condition", "positive_negative"]},
+        {"id": "calc_rowkind", "description": "Projection with RowKind variations", "coverage": ["projection", "RowKind", "INSERT", "UPDATE", "DELETE"]}
+    ],
+    "data_distributions": ["uniform", "alternating_sign", "all_positive"],
+    "boundary_conditions": ["zero_rows_pass_filter", "all_rows_pass", "single_column"]
+}
