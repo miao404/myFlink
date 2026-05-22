@@ -5,9 +5,9 @@
  */
 
 #include "streaming_fuzz_wrapper.h"
-#include "dt/common/dt_fuzz_data.h"
-#include "dt/common/dt_fuzz_factory_util.h"
-#include "dt/common/runtime_env_util.h"
+#include "dt_fuzz_data.h"
+#include "dt_fuzz_factory_util.h"
+#include "runtime_env_util.h"
 
 #include <nlohmann/json.hpp>
 #include <vector>

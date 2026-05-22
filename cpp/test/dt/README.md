@@ -8,30 +8,32 @@ DT (Design for Testability) fuzz testing framework for OmniStream C++ operators.
 dt/
 ├── README.md
 ├── CMakeLists.txt
-├── common/                          # Shared utilities
+├── sourcetree/                       # All fuzz test source code
 │   ├── CMakeLists.txt
+│   ├── fuzz_wrapper.h               # Unified DTFrame entry point
 │   ├── dt_fuzz_data.h               # Fuzz data structures and enums
 │   ├── dt_fuzz_factory_util.h/cpp   # Operator factory creation utilities
-│   └── runtime_env_util.h/cpp       # Runtime environment initialization
-├── table_operators/                  # Table (SQL) operator fuzz tests
-│   ├── sourcetree/
-│   │   ├── table_fuzz_wrapper.h/cpp # Entry point and dispatcher
-│   │   ├── aggregate_fuzz.cpp       # GroupAggFunction (SUM/COUNT/AVG/MAX/MIN)
-│   │   ├── deduplicate_fuzz.cpp     # RowTimeDeduplicateFunction
-│   │   ├── join_fuzz.cpp            # StreamingJoinOperator (Inner/LeftOuter)
-│   │   └── rank_fuzz.cpp            # AppendOnlyTopNFunction/FastTop1Function
-│   └── testtree/
-│       ├── dtframe.cfg              # DTFrame configuration
-│       └── cases/*.json             # Test case definitions
-└── streaming_operators/              # DataStream operator fuzz tests
-    ├── sourcetree/
-    │   ├── streaming_fuzz_wrapper.h/cpp  # Entry point and dispatcher
-    │   ├── keyed_process_fuzz.cpp   # KeyedProcessOperator
-    │   ├── co_process_fuzz.cpp      # KeyedCoProcessOperator
-    │   └── transform_fuzz.cpp       # StreamFilter/StreamMap/StreamFlatMap
-    └── testtree/
-        ├── dtframe.cfg              # DTFrame configuration
-        └── cases/*.json             # Test case definitions
+│   ├── runtime_env_util.h/cpp       # Runtime environment initialization
+│   ├── table_fuzz_wrapper.h/cpp     # Table operator dispatcher
+│   ├── aggregate_fuzz.cpp           # GroupAggFunction (SUM/COUNT/AVG/MAX/MIN)
+│   ├── deduplicate_fuzz.cpp         # RowTimeDeduplicateFunction
+│   ├── join_fuzz.cpp                # StreamingJoinOperator (Inner/LeftOuter)
+│   ├── rank_fuzz.cpp                # AppendOnlyTopNFunction/FastTop1Function
+│   ├── streaming_fuzz_wrapper.h/cpp # Streaming operator dispatcher
+│   ├── keyed_process_fuzz.cpp       # KeyedProcessOperator
+│   ├── co_process_fuzz.cpp          # KeyedCoProcessOperator
+│   └── transform_fuzz.cpp           # StreamFilter/StreamMap/StreamFlatMap
+└── testtree/                         # DTFrame config and test cases
+    ├── CMakeLists.txt
+    ├── dtframe.cfg                  # DTFrame configuration
+    └── cases/
+        ├── aggregate_cases.json
+        ├── deduplicate_cases.json
+        ├── join_cases.json
+        ├── rank_cases.json
+        ├── keyed_process_cases.json
+        ├── co_process_cases.json
+        └── transform_cases.json
 ```
 
 ## Operator Coverage
@@ -81,12 +83,7 @@ make -j$(nproc)
 ## Run Tests
 
 ```bash
-# Table operators
-cd test/dt/table_operators/testtree
-$DT_FRAME/dist/bin/dt_engine --config dtframe.cfg
-
-# Streaming operators
-cd test/dt/streaming_operators/testtree
+cd test/dt/testtree
 $DT_FRAME/dist/bin/dt_engine --config dtframe.cfg
 ```
 

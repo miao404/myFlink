@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 
 #######################################################################
-# DT for OmniStream Streaming Operators
+# DT for OmniStream Operators
 #######################################################################
-set(BUSINESS_LIB "streaming_fuzz")
+set(BUSINESS_LIB "modulefuzz")
 set(DTFRAME_DIR_ROOT $ENV{DT_FRAME}/dist)
 set(TEST_CONFIG_FILE dtframe.cfg)
 set(INSTALL_DIR ${CMAKE_CURRENT_SOURCE_DIR}/dist)
@@ -28,7 +28,7 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../sourcetree)
 
 add_library(${TARGET} SHARED ${SOURCE_FILES})
 
-target_link_libraries(${TARGET} dt_common ${BUSINESS_LIB})
+target_link_libraries(${TARGET} ${BUSINESS_LIB})
 target_link_libraries(${TARGET} rttr_core_d Secodefuzz)
 
 install(TARGETS ${TARGET}

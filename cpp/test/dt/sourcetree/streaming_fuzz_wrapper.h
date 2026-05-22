@@ -7,7 +7,7 @@
 #define OMNISTREAM_STREAMING_FUZZ_WRAPPER_H
 
 #include <iostream>
-#include "dt/common/dt_fuzz_data.h"
+#include "dt_fuzz_data.h"
 
 int KeyedProcessFuzz(struct StreamingFuzzData fzd, uint16_t loopCount, uint16_t chooseMode);
 int CoProcessFuzz(struct StreamingFuzzData fzd, uint16_t loopCount, uint16_t chooseMode);
