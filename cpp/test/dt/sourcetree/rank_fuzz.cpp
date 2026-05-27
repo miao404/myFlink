@@ -1,10 +1,10 @@
 #include "fuzz_wrapper.h"
-#include "table/data/binary/BinaryRowData.h"
-#include "streaming/runtime/streamrecord/StreamRecord.h"
+#include "table/runtime/operators/rank/AppendOnlyTopNFunction.h"
+#include "table/data/vectorbatch/VectorBatch.h"
+#include "streaming/api/functions/KeyedProcessFunction.h"
 #include "streaming/api/operators/KeyedProcessOperator.h"
 #include "test/core/operators/OutputTest.h"
 #include "runtime/taskmanager/OmniRuntimeEnvironment.h"
-#include "runtime/state/TaskStateManager.h"
 #include "core/api/common/TaskInfoImpl.h"
 #include "table/typeutils/RowDataSerializer.h"
 #include "table/types/logical/RowType.h"
@@ -15,8 +15,6 @@
 
 using namespace omnistream;
 using json = nlohmann::json;
-
-#include "table/runtime/operators/rank/AppendOnlyTopNFunction.h"
 
 omnistream::VectorBatch* createRankTestVectorBatch(int rowCount, int64_t keyValue, int64_t sortValue, int64_t dataValue)
 {
@@ -39,109 +37,127 @@ omnistream::VectorBatch* createRankTestVectorBatch(int rowCount, int64_t keyValu
     return vb;
 }
 
-static const std::string RANK_DESC_STR = R"JSON({"input_channels":[0],"operators":[{"description":{"topN":3,"generateUpdateBefore":true,"outputRankNumber":false,"inputTypes":["BIGINT","BIGINT","BIGINT"],"outputTypes":["BIGINT","BIGINT","BIGINT"],"partitionByFields":[0],"sortFields":[1],"sortOrders":[true],"originDescription":"[3]:Rank(orderBy=[col1 ASC])"},"id":"org.apache.flink.streaming.api.operators.KeyedProcessOperator","name":"AppendOnlyTopN[3]"}],"partition":{"channelNumber":1,"partitionName":"forward"}})JSON";
+// Rank config: partition by field0, sort descending by field1, top3 with outputRankNumber
+static const std::string RANK_DESC_TOP3 = R"DELIM({"originDescription":null,
+"inputTypes":["BIGINT", "BIGINT", "BIGINT"],
+"outputTypes":["BIGINT","BIGINT","BIGINT","BIGINT"],
+"partitionKey":[0],
+"outputRankNumber":true,
+"rankRange":"rankStart=1, rankEnd=3",
+"generateUpdateBefore":false,
+"processFunction":"AppendOnlyTopNFunction",
+"sortFieldIndices":[1],
+"sortAscendingOrders":[false],
+"sortNullsIsLast":[true]})DELIM";
+
+// Rank config: without row number, generateUpdateBefore=true
+static const std::string RANK_DESC_NO_ROWNUM = R"DELIM({"originDescription":null,
+"sortAscendingOrders": [false],
+"inputTypes": ["BIGINT","BIGINT","BIGINT"],
+"rankRange": "rankStart=1, rankEnd=3",
+"processFunction": "AppendOnlyTopNFunction",
+"sortFieldIndices": [2],
+"partitionKey": [1],
+"sortNullsIsLast": [true],
+"generateUpdateBefore": true,
+"outputTypes": ["BIGINT","BIGINT","BIGINT"],
+"outputRankNumber": false})DELIM";
 
 void TestRankBasic(const RankFuzzData& fzd)
 {
     std::cout << "TestRankBasic" << std::endl;
 
-    json parsedJson = json::parse(RANK_DESC_STR);
+    const json rankConfig = json::parse(RANK_DESC_TOP3);
 
-    std::string uniqueName = "org.apache.flink.streaming.api.operators.KeyedProcessOperator";
-    OperatorConfig opConfig(uniqueName, "AppendOnlyTopN",
-        parsedJson["operators"][0]["description"]["inputTypes"],
-        parsedJson["operators"][0]["description"]["outputTypes"],
-        parsedJson["operators"][0]["description"]);
+    auto func = reinterpret_cast<KeyedProcessFunction<RowData*, RowData *, RowData *> *>(
+        new AppendOnlyTopNFunction<RowData*>(rankConfig));
 
-    BatchOutputTest* output = new BatchOutputTest();
-    AppendOnlyTopNFunction *func = new AppendOnlyTopNFunction(opConfig.getDescription());
-    KeyedProcessOperator<RowData *, RowData*, RowData*> *keyedOp = new KeyedProcessOperator(func, output, opConfig.getDescription());
-    keyedOp->setup();
+    json newRankConfig = rankConfig;
+    BatchOutputTest *output = new BatchOutputTest();
+    auto *op = new KeyedProcessOperator(func, output, newRankConfig);
+    op->setup();
 
     auto env2 = new omnistream::RuntimeEnvironmentV2();
     auto taskInfo = new TaskInformationPOD();
     taskInfo->setStateBackend("HashMapStateBackend");
     env2->setTaskConfiguration(*taskInfo);
     StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
-    std::vector<omnistream::RowField> *typeInfo = new std::vector<omnistream::RowField>(
-        {omnistream::RowField("col0", BasicLogicalType::BIGINT), omnistream::RowField("col1", BasicLogicalType::BIGINT), omnistream::RowField("col2", BasicLogicalType::BIGINT)});
-    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, *typeInfo));
-    keyedOp->initializeState(initializer, ser);
-    keyedOp->open();
+    std::vector<omnistream::RowField> typeInfo {
+        omnistream::RowField("col0", BasicLogicalType::BIGINT),
+        omnistream::RowField("col1", BasicLogicalType::BIGINT),
+        omnistream::RowField("col2", BasicLogicalType::BIGINT)};
+    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, typeInfo));
+    op->initializeState(initializer, ser);
+    op->open();
 
     omnistream::VectorBatch* vb = createRankTestVectorBatch(fzd.loopCount, fzd.keyValue, fzd.sortValue, fzd.dataValue);
-    StreamRecord *record = new StreamRecord(vb);
-    keyedOp->processBatch(record);
-
-    delete record;
+    op->processBatch(new StreamRecord(vb));
 }
 
 void TestRankWithUpdate(const RankFuzzData& fzd)
 {
     std::cout << "TestRankWithUpdate" << std::endl;
 
-    json parsedJson = json::parse(RANK_DESC_STR);
+    const json rankConfig = json::parse(RANK_DESC_TOP3);
 
-    std::string uniqueName = "org.apache.flink.streaming.api.operators.KeyedProcessOperator";
-    OperatorConfig opConfig(uniqueName, "AppendOnlyTopN",
-        parsedJson["operators"][0]["description"]["inputTypes"],
-        parsedJson["operators"][0]["description"]["outputTypes"],
-        parsedJson["operators"][0]["description"]);
+    auto func = reinterpret_cast<KeyedProcessFunction<RowData*, RowData *, RowData *> *>(
+        new AppendOnlyTopNFunction<RowData*>(rankConfig));
 
-    BatchOutputTest* output = new BatchOutputTest();
-    AppendOnlyTopNFunction *func = new AppendOnlyTopNFunction(opConfig.getDescription());
-    KeyedProcessOperator<RowData *, RowData*, RowData*> *keyedOp = new KeyedProcessOperator(func, output, opConfig.getDescription());
-    keyedOp->setup();
+    json newRankConfig = rankConfig;
+    BatchOutputTest *output = new BatchOutputTest();
+    auto *op = new KeyedProcessOperator(func, output, newRankConfig);
+    op->setup();
 
     auto env2 = new omnistream::RuntimeEnvironmentV2();
     auto taskInfo = new TaskInformationPOD();
     taskInfo->setStateBackend("HashMapStateBackend");
     env2->setTaskConfiguration(*taskInfo);
     StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
-    std::vector<omnistream::RowField> *typeInfo = new std::vector<omnistream::RowField>(
-        {omnistream::RowField("col0", BasicLogicalType::BIGINT), omnistream::RowField("col1", BasicLogicalType::BIGINT), omnistream::RowField("col2", BasicLogicalType::BIGINT)});
-    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, *typeInfo));
-    keyedOp->initializeState(initializer, ser);
-    keyedOp->open();
+    std::vector<omnistream::RowField> typeInfo {
+        omnistream::RowField("col0", BasicLogicalType::BIGINT),
+        omnistream::RowField("col1", BasicLogicalType::BIGINT),
+        omnistream::RowField("col2", BasicLogicalType::BIGINT)};
+    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, typeInfo));
+    op->initializeState(initializer, ser);
+    op->open();
 
     omnistream::VectorBatch* vb1 = createRankTestVectorBatch(fzd.loopCount, fzd.keyValue, fzd.sortValue, fzd.dataValue);
-    keyedOp->processBatch(new StreamRecord(vb1));
+    op->processBatch(new StreamRecord(vb1));
 
     omnistream::VectorBatch* vb2 = createRankTestVectorBatch(fzd.loopCount, fzd.keyValue, fzd.sortValue + 100, fzd.dataValue + 100);
-    keyedOp->processBatch(new StreamRecord(vb2));
+    op->processBatch(new StreamRecord(vb2));
 }
 
-void TestRankMultiPartition(const RankFuzzData& fzd)
+void TestRankWithoutRowNumber(const RankFuzzData& fzd)
 {
-    std::cout << "TestRankMultiPartition" << std::endl;
+    std::cout << "TestRankWithoutRowNumber" << std::endl;
 
-    json parsedJson = json::parse(RANK_DESC_STR);
+    const json rankConfig = json::parse(RANK_DESC_NO_ROWNUM);
 
-    std::string uniqueName = "org.apache.flink.streaming.api.operators.KeyedProcessOperator";
-    OperatorConfig opConfig(uniqueName, "AppendOnlyTopN",
-        parsedJson["operators"][0]["description"]["inputTypes"],
-        parsedJson["operators"][0]["description"]["outputTypes"],
-        parsedJson["operators"][0]["description"]);
+    auto func = reinterpret_cast<KeyedProcessFunction<long, RowData *, RowData *> *>(
+        new AppendOnlyTopNFunction<long>(rankConfig));
 
-    BatchOutputTest* output = new BatchOutputTest();
-    AppendOnlyTopNFunction *func = new AppendOnlyTopNFunction(opConfig.getDescription());
-    KeyedProcessOperator<RowData *, RowData*, RowData*> *keyedOp = new KeyedProcessOperator(func, output, opConfig.getDescription());
-    keyedOp->setup();
+    json newRankConfig = rankConfig;
+    BatchOutputTest *output = new BatchOutputTest();
+    auto *op = new KeyedProcessOperator(func, output, newRankConfig);
+    op->setup();
 
     auto env2 = new omnistream::RuntimeEnvironmentV2();
     auto taskInfo = new TaskInformationPOD();
     taskInfo->setStateBackend("HashMapStateBackend");
     env2->setTaskConfiguration(*taskInfo);
     StreamTaskStateInitializerImpl *initializer = new StreamTaskStateInitializerImpl(env2);
-    std::vector<omnistream::RowField> *typeInfo = new std::vector<omnistream::RowField>(
-        {omnistream::RowField("col0", BasicLogicalType::BIGINT), omnistream::RowField("col1", BasicLogicalType::BIGINT), omnistream::RowField("col2", BasicLogicalType::BIGINT)});
-    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, *typeInfo));
-    keyedOp->initializeState(initializer, ser);
-    keyedOp->open();
+    std::vector<omnistream::RowField> typeInfo {
+        omnistream::RowField("col0", BasicLogicalType::BIGINT),
+        omnistream::RowField("col1", BasicLogicalType::BIGINT),
+        omnistream::RowField("col2", BasicLogicalType::BIGINT)};
+    TypeSerializer *ser = new RowDataSerializer(new omnistream::RowType(false, typeInfo));
+    op->initializeState(initializer, ser);
+    op->open();
 
     for (int p = 0; p < 3; p++) {
         omnistream::VectorBatch* vb = createRankTestVectorBatch(fzd.loopCount, fzd.keyValue + p, fzd.sortValue, fzd.dataValue);
-        keyedOp->processBatch(new StreamRecord(vb));
+        op->processBatch(new StreamRecord(vb));
     }
 }
 
@@ -154,11 +170,11 @@ int GlobalRankFuzz(struct RankFuzzData fzd, std::string filterExpr, int32_t choo
     switch (chooseFunc) {
         case 1: TestRankBasic(fzd); break;
         case 2: TestRankWithUpdate(fzd); break;
-        case 3: TestRankMultiPartition(fzd); break;
+        case 3: TestRankWithoutRowNumber(fzd); break;
         default:
             TestRankBasic(fzd);
             TestRankWithUpdate(fzd);
-            TestRankMultiPartition(fzd);
+            TestRankWithoutRowNumber(fzd);
             break;
     }
     return 0;
