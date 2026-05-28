@@ -8,8 +8,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef FLINK_TNEL_HEAPKEYEDSTATEBACKENDBUILDER_H
-#define FLINK_TNEL_HEAPKEYEDSTATEBACKENDBUILDER_H
+#pragma once
+
 #include <emhash7.hpp>
 #include <set>
 #include <memory>
@@ -58,6 +58,8 @@ protected:
 private:
     /** Info collected per state during restore Phase 1, used in Phase 2 for deserialization. */
     struct RestoreStateInfo {
+        StateMetaInfoSnapshot::BackendStateType backendStateType;
+        std::string stateName;
         StateDescriptor *stateDesc;
         TypeSerializer *namespaceSerializer;
         TypeSerializer *valueSerializer;
@@ -233,6 +235,27 @@ HeapKeyedStateBackend<K> *HeapKeyedStateBackendBuilder<K>::build()
 
             for (size_t i = 0; i < metaInfos.size(); i++) {
                 auto &metaInfo = metaInfos[i];
+                auto backendStateType = metaInfo.getBackendStateType();
+
+                if (backendStateType == StateMetaInfoSnapshot::BackendStateType::PRIORITY_QUEUE) {
+                    INFO_RELEASE("HeapKeyedStateBackendBuilder: discovered PRIORITY_QUEUE state '"
+                        << metaInfo.getName()
+                        << "' at kvStateId=" << i
+                        << ", entries will be restored when the typed timer queue is created");
+                    stateInfos.push_back({backendStateType, metaInfo.getName(), nullptr, nullptr,
+                        metaInfo.getTypeSerializer("VALUE_SERIALIZER")});
+                    continue;
+                }
+
+                if (backendStateType != StateMetaInfoSnapshot::BackendStateType::KEY_VALUE) {
+                    INFO_RELEASE("HeapKeyedStateBackendBuilder: skipping unsupported backend state type for state '"
+                        << metaInfo.getName() << "'");
+                    stateInfos.push_back({backendStateType, metaInfo.getName(), nullptr, nullptr, nullptr});
+                    THROW_LOGIC_EXCEPTION("Unsupported backend state type in heap keyed state restore. state='"
+                        << metaInfo.getName()
+                        << "', kvStateId=" << i
+                        << ", backendStateType=" << static_cast<int>(backendStateType))
+                }
 
                 std::string stateTypeStr = metaInfo.getOption(
                     StateMetaInfoSnapshot::CommonOptionsKeys::KEYED_STATE_TYPE);
@@ -244,7 +267,7 @@ HeapKeyedStateBackend<K> *HeapKeyedStateBackendBuilder<K>::build()
                 if (nsSerializer == nullptr || valSerializer == nullptr) {
                     INFO_RELEASE("HeapKeyedStateBackendBuilder: skipping state '"
                         << metaInfo.getName() << "' — missing serializer(s)");
-                    stateInfos.push_back({nullptr, nullptr, nullptr});
+                    stateInfos.push_back({backendStateType, metaInfo.getName(), nullptr, nullptr, nullptr});
                     continue;
                 }
 
@@ -253,7 +276,7 @@ HeapKeyedStateBackend<K> *HeapKeyedStateBackendBuilder<K>::build()
                 // Create the state table via the existing type dispatch mechanism
                 backend->createOrUpdateInternalState(nsSerializer, desc);
 
-                stateInfos.push_back({desc, nsSerializer, valSerializer});
+                stateInfos.push_back({backendStateType, metaInfo.getName(), desc, nsSerializer, valSerializer});
             }
 
             // Phase 2: Iterate KV entries, deserialize, and write into state tables
@@ -261,6 +284,7 @@ HeapKeyedStateBackend<K> *HeapKeyedStateBackendBuilder<K>::build()
             int totalKeyGroups = 0;
             int totalSkippedInvalidKvStateId = 0;
             int totalSkippedNullStateDesc = 0;
+            int totalPriorityQueueEntriesRestored = 0;
             while (keyGroupIterator->hasNext()) {
                 auto keyGroup = keyGroupIterator->next();
                 int keyGroupId = keyGroup->getKeyGroupId();
@@ -280,6 +304,15 @@ HeapKeyedStateBackend<K> *HeapKeyedStateBackendBuilder<K>::build()
                     }
 
                     auto &info = stateInfos[kvStateId];
+                    if (info.backendStateType == StateMetaInfoSnapshot::BackendStateType::PRIORITY_QUEUE) {
+                        backend->addRestoredPriorityQueueEntry(
+                            info.stateName, entry->getKey(), keyGroupPrefixBytes);
+                        kgEntryCount++;
+                        totalEntriesRestored++;
+                        totalPriorityQueueEntriesRestored++;
+                        continue;
+                    }
+
                     if (info.stateDesc == nullptr) {
                         totalSkippedNullStateDesc++;
                         continue;  // State was skipped in Phase 1
@@ -328,6 +361,12 @@ void HeapKeyedStateBackendBuilder<K>::restoreEntryToHeap(
         keyObjForObjectKBackend = keySerializer->GetBuffer();
         keySerializer->deserialize(keyObjForObjectKBackend, keyInput);
         rawKey = new Object *(keyObjForObjectKBackend);  // K = Object*; new Object*(value)
+    } else if constexpr (std::is_pointer_v<K>) {
+        // 非 Object* 的指针 key（如 RowData*）：serializer 的 void* deserialize 返回的
+        // 直接是对象指针本身（K），而非 K*。这里包一层 K*，使下游统一的
+        // *static_cast<K*>(rawKey) 取值与 delete static_cast<K*>(rawKey) 释放都成立。
+        // 对象本体由 serializer 的复用缓冲持有、put() 内部会 copy() 克隆，故不能在此 delete。
+        rawKey = new K(static_cast<K>(keySerializer->deserialize(keyInput)));
     } else {
         rawKey = keySerializer->deserialize(keyInput);
     }
@@ -364,17 +403,20 @@ void HeapKeyedStateBackendBuilder<K>::restoreEntryToHeap(
         auto dataId = desc->getBackendId();
 
         if (nsBackendId == BackendDataType::BIGINT_BK && dataId == BackendDataType::ROW_BK) {
+            // valueSerializer 返回的是共享复用缓冲，状态表对 RowData* 值不克隆而是直接持有指针，
+            // 故必须在存入前 copy() 一份独立副本，否则所有 entry 会别名到同一块缓冲。
             void *rawVal = info.valueSerializer->deserialize(valInput);
             auto *table = reinterpret_cast<CopyOnWriteStateTable<K, int64_t, RowData *> *>(stateTablePtr);
             table->put(*static_cast<K *>(rawKey), keyGroupId, *static_cast<int64_t *>(rawNs),
-                       static_cast<RowData *>(rawVal));
+                       static_cast<RowData *>(rawVal)->copy());
             delete static_cast<K *>(rawKey);
             delete static_cast<int64_t *>(rawNs);
         } else if (nsBackendId == BackendDataType::TIME_WINDOW_BK && dataId == BackendDataType::ROW_BK) {
+            // 同上：必须 copy() 一份，避免别名到 valueSerializer 的共享复用缓冲。
             void *rawVal = info.valueSerializer->deserialize(valInput);
             auto *table = reinterpret_cast<CopyOnWriteStateTable<K, TimeWindow, RowData *> *>(stateTablePtr);
             table->put(*static_cast<K *>(rawKey), keyGroupId, *static_cast<TimeWindow *>(rawNs),
-                       static_cast<RowData *>(rawVal));
+                       static_cast<RowData *>(rawVal)->copy());
             delete static_cast<K *>(rawKey);
             delete static_cast<TimeWindow *>(rawNs);
         } else if (dataId == BackendDataType::OBJECT_BK || dataId == BackendDataType::POJO_BK
@@ -403,10 +445,11 @@ void HeapKeyedStateBackendBuilder<K>::restoreEntryToHeap(
             delete static_cast<VoidNamespace *>(rawNs);
             delete static_cast<int64_t *>(rawVal);
         } else if (dataId == BackendDataType::ROW_BK) {
+            // 同上：必须 copy() 一份，避免别名到 valueSerializer 的共享复用缓冲。
             void *rawVal = info.valueSerializer->deserialize(valInput);
             auto *table = reinterpret_cast<CopyOnWriteStateTable<K, VoidNamespace, RowData *> *>(stateTablePtr);
             table->put(*static_cast<K *>(rawKey), keyGroupId, *static_cast<VoidNamespace *>(rawNs),
-                       static_cast<RowData *>(rawVal));
+                       static_cast<RowData *>(rawVal)->copy());
             delete static_cast<K *>(rawKey);
             delete static_cast<VoidNamespace *>(rawNs);
         } else {
@@ -522,5 +565,3 @@ void HeapKeyedStateBackendBuilder<K>::restoreEntryToHeap(
         delete static_cast<VoidNamespace *>(rawNs);
     }
 }
-
-#endif // FLINK_TNEL_HEAPKEYEDSTATEBACKENDBUILDER_H

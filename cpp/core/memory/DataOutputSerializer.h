@@ -10,8 +10,7 @@
  */
 
 
-#ifndef FLINK_TNEL_DATAOUTPUTSERIALIZER_H
-#define FLINK_TNEL_DATAOUTPUTSERIALIZER_H
+# pragma once
 #include <securec.h>
 #include <vector>
 #include <cstddef>
@@ -53,6 +52,10 @@ public:
 
     inline void write(uint32_t var1) ;
 
+    inline void writeShort(uint16_t value);
+
+    inline void write(std::vector<uint8_t>& var);
+
     // todo: need to use int32_t
     inline void writeInt(uint32_t value);
 
@@ -67,6 +70,10 @@ public:
 
     inline uint8_t* getData();
     inline int getPosition();
+
+    std::vector<uint8_t>* getCopyOfBuffer() {
+        return new std::vector<uint8_t>(data_, data_ + position_);
+    }
 
 private:
     uint8_t* data_ = nullptr;
@@ -145,6 +152,20 @@ inline void DataOutputSerializer::writeByte(uint32_t var)
 inline void DataOutputSerializer::write(uint32_t value)
 {
     writeByte(value);
+}
+
+inline void DataOutputSerializer::writeShort(uint16_t value)
+{
+    expandDataBuffer(2);
+    if (data_ == nullptr) {
+        throw std::runtime_error("Data buffer is null");
+    }
+    *reinterpret_cast<uint16_t*>(data_ + position_) = __builtin_bswap16(value);
+    position_ += 2;
+}
+
+inline void DataOutputSerializer::write(std::vector<uint8_t>& var) {
+    write(var.data(), var.size(), 0, var.size());
 }
 
 inline void DataOutputSerializer::writeInt(uint32_t value)
@@ -280,5 +301,3 @@ inline void DataOutputSerializer::writeBoolean(bool var)
 {
     write(var ? 1 : 0);
 }
-
-#endif  // FLINK_TNEL_DATAOUTPUTSERIALIZER_H

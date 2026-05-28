@@ -60,6 +60,7 @@ public:
         windowInterval = sliceAssigner->getSliceEndInterval();
     }
     void open() override;
+
     const char* getName() override;
     void close() override;
     void processBatch(StreamRecord* record) override;
@@ -88,8 +89,18 @@ public:
 
     void initializeState(StreamTaskStateInitializerImpl* initializer, TypeSerializer* keySerializer) override
     {
-        LOG("LocalSlicingWindowAggOperator initializeState()")
+        // First do the shared initialization step
+        INFO_RELEASE("LocalSlicingWindowAggOperator initializeState with initializer, operatorID: " << OneInputStreamOperator::GetOperatorID().toString());
+        AbstractStreamOperator<long>::SetOperatorID(OneInputStreamOperator::GetOperatorID().toString());
         AbstractStreamOperator<long>::initializeState(initializer, keySerializer);
+    }
+
+    void notifyCheckpointComplete(long checkpointId) override {
+        AbstractStreamOperator<long>::notifyCheckpointComplete(checkpointId);
+    }
+
+    void notifyCheckpointAborted(long checkpointId) override {
+        AbstractStreamOperator<long>::notifyCheckpointAborted(checkpointId);
     }
 
     static std::string extractAggFunction(const std::string& input)
@@ -116,7 +127,7 @@ private:
     JoinedRowData* resultRow;
     BinaryRowData* reUseAggValue;
     BinaryRowData* reUseAccumulator;
-    std::unordered_map<WindowKey*, std::vector<RowData*>> bundle;
+    std::unordered_map<WindowKey, std::vector<RowData*>> bundle;
     std::vector<std::string> inputTypes;
     std::vector<std::string> outputTypes;
     std::vector<int32_t> outputTypeIds;
@@ -138,7 +149,7 @@ private:
     bool SendAccResults(Watermark *mark);
     void SetLong(omniruntime::vec::VectorBatch* outputBatch, int numRows, int colIndex, std::vector<RowData*> vec);
     void SetInt(omniruntime::vec::VectorBatch* outputBatch, int numRows, int colIndex, std::vector<RowData*> vec);
-    std::vector<WindowKey*> invertOrder;
+    std::vector<WindowKey> invertOrder;
     int rowtimeIndexVal;
     ClockService* clock;
     void ExtractFunction();

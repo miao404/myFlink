@@ -8,8 +8,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef OMNISTREAM_ROCKSITERATORWRAPPER_H
-#define OMNISTREAM_ROCKSITERATORWRAPPER_H
+
+#pragma once
 
 #include <memory>
 #include <string>
@@ -147,7 +147,7 @@ public:
 
     /**
      * 获取当前键
-     * @return 字符串视图（拷贝）
+     * @return 字符串（拷贝）
      */
     std::string key()
     {
@@ -155,12 +155,35 @@ public:
     }
 
     /**
+    * 获取当前键
+    * @return 字符串视图
+    */
+    std::string_view keyView() {
+        return iterator->key().ToStringView();
+    }
+
+    /**
+    * 获取当前键
+    * @return Slice
+    */
+    rocksdb::Slice keySlice() {
+        return iterator->key();
+    }
+
+    /**
      * 获取当前值
      * @return 字符串视图（拷贝）
      */
-    std::string value()
-    {
+    std::string value() {
         return iterator->value().ToString();
+    }
+
+    /**
+     * 获取当前值
+     * @return Slice
+     */
+    rocksdb::Slice valueSlice() {
+        return iterator->value();
     }
 
     /**
@@ -179,5 +202,3 @@ public:
 private:
     std::unique_ptr<rocksdb::Iterator> iterator;
 };
-
-#endif // OMNISTREAM_ROCKSITERATORWRAPPER_H

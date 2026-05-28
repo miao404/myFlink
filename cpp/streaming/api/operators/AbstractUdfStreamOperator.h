@@ -56,9 +56,29 @@ public:
         }
     }
 
+    void notifyCheckpointAborted(long checkpointId)
+    {
+        AbstractStreamOperator<K>::notifyCheckpointAborted(checkpointId);
+        if (auto uf = dynamic_cast<CheckpointListener*>(userFunction)) {
+            uf->notifyCheckpointAborted(checkpointId);
+        }
+    }
+
     void close() override {
         AbstractStreamOperator<K>::close();
         // todo: should the udf be closed?
+    }
+
+    void initializeState(StateInitializationContextImpl<K> *context)  override {
+        AbstractStreamOperator<K>::initializeState(context);
+    }
+
+    void initializeState(StreamTaskStateInitializerImpl *initializer, TypeSerializer *keySerializer) override {
+        AbstractStreamOperator<K>::initializeState(initializer, keySerializer);
+    }
+
+    void snapshotState(StateSnapshotContextSynchronousImpl *context) override {
+        AbstractStreamOperator<K>::snapshotState(context);
     }
 protected:
     F* userFunction = nullptr;

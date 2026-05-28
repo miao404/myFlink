@@ -39,8 +39,9 @@
 
 #include "../../../core/utils/MathUtils.h"
 #include "state/RocksDbKvStateInfo.h"
-
-const int FALCON_HASH_PARAM = 13;
+#include "RocksDbOperationUtils.h"
+#include "../RocksDBConfigurableOptions.h"
+#include "runtime/state/RocksIteratorWrapper.h"
 
 /* S is the value used in the State,
  * like RowData* for HeapValueState,
@@ -74,13 +75,28 @@ public:
         ROCKSDB_NAMESPACE::BlockBasedTableOptions blockBasedTableOptions;
 
         // [FALCON] -----------------------------------------------------------------------------------------------
-        if (metaInfo->getStateType() == StateDescriptor::Type::VALUE) {
-			// modify columnFamily option and read option for current columnFamily
-            // familyOptions.memtable_factory.reset(ROCKSDB_NAMESPACE::NewHashLinkListRepFactory());
-            // familyOptions.prefix_extractor.reset(ROCKSDB_NAMESPACE::NewCappedPrefixTransform(FALCON_HASH_PARAM));
-			readOptions.total_order_seek = false;
-            INFO_RELEASE("[FALCON] enable hash memTable for valueState.")
+        auto useHashMemTable = reinterpret_cast<Boolean*>(Configuration::TM_CONFIG
+            ->getValue(RocksDBConfigurableOptions::USE_HASH_MEMTABLE));
+        auto prefixExtractorLength = reinterpret_cast<Integer*>(Configuration::TM_CONFIG
+            ->getValue(RocksDBConfigurableOptions::PREFIX_EXTRACTOR_LENGTH));
+
+        int prefixLen = 13;
+        if (prefixExtractorLength != nullptr) {
+            prefixLen = prefixExtractorLength->value;
+            prefixExtractorLength->putRefCount();
         }
+
+        if (useHashMemTable != nullptr && useHashMemTable->value) {
+            if (metaInfo->getStateType() == StateDescriptor::Type::VALUE) {
+                // modify columnFamily option and read option for current columnFamily
+                familyOptions.memtable_factory.reset(ROCKSDB_NAMESPACE::NewHashLinkListRepFactory());
+                familyOptions.prefix_extractor.reset(ROCKSDB_NAMESPACE::NewCappedPrefixTransform(prefixLen));
+                readOptions.total_order_seek = true;
+                INFO_RELEASE("[FALCON] enable hash memTable for valueState, prefix length is " << prefixLen << ".")
+            }
+        }
+
+        if (useHashMemTable != nullptr) { useHashMemTable->putRefCount(); }
         // [FALCON] -----------------------------------------------------------------------------------------------
 
         DefaultConfigurableOptionsFactory::createColumnOptions(familyOptions, blockBasedTableOptions);
@@ -97,6 +113,23 @@ public:
         auto it2 = kvStateInformation->find(cfName + "vb");
         if (it2 != kvStateInformation->end() && it2->second->columnFamilyHandle_) {
             VBTable = it2->second->columnFamilyHandle_;
+                        std::string estimatedKeysStr1;
+            if (db->GetProperty(VBTable, "rocksdb.estimate-num-keys", &estimatedKeysStr1)) {
+                INFO_RELEASE("rocksdbStateTable createTable cfName=" << cfName << "vb"
+                    << " estimatedNumKeys=" << estimatedKeysStr1);
+            }   
+            auto iterStart = std::chrono::steady_clock::now();
+            std::unique_ptr<RocksIteratorWrapper> iterator = RocksDbOperationUtils::getRocksIterator(
+                db, VBTable, readOptions);
+            iterator->seekToFirst();
+            while (iterator->isValid()) {
+                vectorBatchId++;
+                iterator->next();
+            }
+            auto iterEnd = std::chrono::steady_clock::now();
+            auto iterMs = std::chrono::duration_cast<std::chrono::milliseconds>(iterEnd - iterStart).count();
+            INFO_RELEASE("rocksdbStateTable createTable iterMs=" << iterMs
+                << " cfName=" << cfName<<"vb vectorBatchId=" << vectorBatchId);
         } else {
             s = db->CreateColumnFamily(familyOptions, cfName + "vb", &VBTable);
             if (it2 != kvStateInformation->end()) {
@@ -125,9 +158,9 @@ public:
         if constexpr (std::is_same_v<K, int64_t> || std::is_same_v<K, int32_t>) {
             LongSerializer::INSTANCE->serialize(&currentKey, outputSerializer);
         } else if constexpr (std::is_pointer_v<K>) {
-            if (currentKey != nullptr){
-              getKeySerializer()->serialize(currentKey, outputSerializer);
-            }
+            getKeySerializer()->serialize(currentKey, outputSerializer);
+        } else if constexpr (is_shared_ptr_v<K>) {
+            getKeySerializer()->serialize(currentKey.get(), outputSerializer);
         } else {
             getKeySerializer()->serialize(&currentKey, outputSerializer);
         }
@@ -383,6 +416,10 @@ public:
         DataOutputSerializer keyOutputSerializer;
         OutputBufferStatus outputBufferStatus;
         keyOutputSerializer.setBackendBuffer(&outputBufferStatus);
+
+        int keyGroup = computeKeyGroup(vectorBatchId);
+        keyOutputSerializer.writeByte(static_cast<uint32_t>(keyGroup));
+
         LongSerializer longSerializer;
         longSerializer.serialize(&vectorBatchId, keyOutputSerializer);
 
@@ -405,6 +442,10 @@ public:
         DataOutputSerializer keyOutputSerializer;
         OutputBufferStatus outputBufferStatus;
         keyOutputSerializer.setBackendBuffer(&outputBufferStatus);
+        
+        int keyGroup = computeKeyGroup(vbId);
+        keyOutputSerializer.writeByte(static_cast<uint32_t>(keyGroup));
+        
         LongSerializer longSerializer;
         longSerializer.serialize(&vbId, keyOutputSerializer);
 
@@ -432,6 +473,10 @@ public:
             DataOutputSerializer keyOutputSerializer;
             OutputBufferStatus outputBufferStatus;
             keyOutputSerializer.setBackendBuffer(&outputBufferStatus);
+            
+            int keyGroup = computeKeyGroup(vbId);
+            keyOutputSerializer.writeByte(static_cast<uint32_t>(keyGroup));
+            
             LongSerializer longSerializer;
             longSerializer.serialize(&vbId, keyOutputSerializer);
 
@@ -459,6 +504,10 @@ public:
         DataOutputSerializer keyOutputSerializer;
         OutputBufferStatus outputBufferStatus;
         keyOutputSerializer.setBackendBuffer(&outputBufferStatus);
+        
+        int keyGroup = computeKeyGroup(batchId);
+        keyOutputSerializer.writeByte(static_cast<uint32_t>(keyGroup));
+        
         LongSerializer longSerializer;
         longSerializer.serialize(&batchId, keyOutputSerializer);
 
@@ -479,6 +528,65 @@ public:
     long getVectorBatchesSize()
     {
         return vectorBatchId;
+    }
+
+    void clearVectors(int64_t currentTimestamp)
+    {
+        ROCKSDB_NAMESPACE::WriteBatch batchToDelete;
+        std::unique_ptr<ROCKSDB_NAMESPACE::Iterator> it(rocksDb->NewIterator(readOptions, VBTable));
+        for (it->SeekToFirst(); it->Valid(); it->Next()) {
+            ROCKSDB_NAMESPACE::Slice valueSlice = it->value();
+            uint8_t* address = reinterpret_cast<uint8_t*>(const_cast<char*>(valueSlice.data())) + sizeof(int8_t);
+            auto batch = omnistream::VectorBatchDeserializationUtils::deserializeVectorBatch(address);
+            
+            if (batch) {
+                if (batch->isEmpty(currentTimestamp)) {
+                    batchToDelete.Delete(VBTable, it->key());
+                }
+                delete batch; 
+            }
+        }
+        
+        if (!it->status().ok()) {
+            INFO_RELEASE("ROCKSDB WARNING: Delete iterator error: " << it->status().ToString())
+        }
+        
+        auto status = rocksDb->Write(writeOptions, &batchToDelete);
+        if (!status.ok()) {
+            INFO_RELEASE( "ROCKSDB WARNING: Failed to delete batches: " << status.ToString());
+        }
+    }
+    
+    void clearVectors(std::vector<size_t>& indicesToDelete) 
+    {
+        if (indicesToDelete.empty()) {
+            return;
+        }
+ 
+        ROCKSDB_NAMESPACE::WriteBatch batchToDelete;
+        LongSerializer longSerializer;
+ 
+        for (size_t index : indicesToDelete) {
+            long batchId = static_cast<long>(index);
+ 
+            // Recreate serializers inside the loop to ensure clean buffers for each key
+            DataOutputSerializer keyOutputSerializer;
+            OutputBufferStatus outputBufferStatus;
+            keyOutputSerializer.setBackendBuffer(&outputBufferStatus);
+            
+            longSerializer.serialize(&batchId, keyOutputSerializer);
+ 
+            ROCKSDB_NAMESPACE::Slice key(reinterpret_cast<const char *>(keyOutputSerializer.getData()),
+                                        (int32_t) (keyOutputSerializer.getPosition()));
+ 
+            batchToDelete.Delete(VBTable, key);
+        }
+ 
+        auto status = rocksDb->Write(writeOptions, &batchToDelete);
+        if (!status.ok()) {
+            INFO_RELEASE("ROCKSDB WARNING: Failed to batch delete vectors: " << status.ToString());
+        }
+    
     }
 
     // [FALCON] function which will be called in RocksdbValueState
@@ -505,6 +613,15 @@ public:
 protected:
     // Variables
     InternalKeyContext<K> *keyContext;
+
+    template<typename T>
+    int computeKeyGroup(T id) const
+    {
+        int keyGroup = MathUtils::murmurHash(std::hash<T>{}(id)) % keyContext->getNumberOfKeyGroups();
+        int rangeSize = keyContext->getKeyGroupRange()->getEndKeyGroup() -
+                        keyContext->getKeyGroupRange()->getStartKeyGroup() + 1;
+        return (keyGroup % rangeSize) + keyContext->getKeyGroupRange()->getStartKeyGroup();
+    }
     TypeSerializer *keySerializer;
     // KeyGroupRange *keyGroupRange;
     ROCKSDB_NAMESPACE::ColumnFamilyHandle *table; // 是不是编程columnsFamily

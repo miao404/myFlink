@@ -248,8 +248,18 @@ public :
 
     void initializeState(StreamTaskStateInitializerImpl *initializer, TypeSerializer *keySerializer) override
     {
-        LOG("-----KeyedCoProcessOperator::initializeState")
+        // First do the shared initialization step
+        INFO_RELEASE("savepoint: KeyedCoProcessOperator initializeState with initializer, operatorID: " << TwoInputStreamOperator::GetOperatorID().toString());
+        AbstractStreamOperator<K*>::SetOperatorID(TwoInputStreamOperator::GetOperatorID().toString());
         AbstractStreamOperator<K*>::initializeState(initializer, keySerializer);
+    }
+
+    void notifyCheckpointComplete(long checkpointId) override {
+        AbstractUdfStreamOperator<KeyedCoProcessFunction<K*, IN1, IN2, OUT>, OUT>::notifyCheckpointComplete(checkpointId);
+    }
+
+    void notifyCheckpointAborted(long checkpointId) override {
+        AbstractUdfStreamOperator<KeyedCoProcessFunction<K*, IN1, IN2, OUT>, OUT>::notifyCheckpointAborted(checkpointId);
     }
 
     bool isSetKeyContextElement1() override

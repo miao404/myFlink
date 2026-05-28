@@ -8,8 +8,10 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef WINDOW_H
-#define WINDOW_H
+
+#pragma once
+
+#include <cstdint>
 
 class Window {
 public:
@@ -17,7 +19,7 @@ public:
 
     virtual ~Window() = default;
 
-    virtual long maxTimestamp() const = 0;
+    virtual int64_t maxTimestamp() const = 0;
 
 protected:
     // Copy constructor and assignment operator are protected to prevent object slicing
@@ -26,5 +28,3 @@ protected:
     Window(Window&&) = default;
     Window& operator=(Window&&) = default;
 };
-
-#endif

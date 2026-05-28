@@ -9,8 +9,7 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#ifndef OMNISTREAM_EMBEDDEDROCKSDBSTATEBACKEND
-#define OMNISTREAM_EMBEDDEDROCKSDBSTATEBACKEND
+#pragma once
 
 #include <nlohmann/json.hpp>
 #include "UUID.h"
@@ -19,6 +18,7 @@
 #include "runtime/execution/OmniEnvironment.h"
 #include "RocksDBKeyedStateBackendBuilder.h"
 #include "RocksDBMemoryControllerUtils.h"
+#include "DefaultOperatorStateBackendBuilder.h"
 
 using json = nlohmann::json;
 
@@ -81,7 +81,7 @@ public:
 
         auto sharedResources = RocksDBMemoryControllerUtils::allocateRocksDBSharedResources(env->taskConfiguration());
 
-        auto resourceContainer = std::make_unique<RocksDBResourceContainer>(
+        auto resourceContainer = std::make_shared<RocksDBResourceContainer>(
                 sharedResources,
                 instanceBasePath,
                 false);
@@ -90,14 +90,19 @@ public:
                 stateHandles.begin(),
                 stateHandles.end());
 
+        auto priorityQueueStateType = env->taskConfiguration().getPriorityQueueStateType() == "ROCKSDB" ?
+                RocksDBKeyedStateBackendBuilder<K>::PriorityQueueStateType::ROCKSDB :
+                RocksDBKeyedStateBackendBuilder<K>::PriorityQueueStateType::HEAP;
+
         RocksDBKeyedStateBackendBuilder<K> builder(
                 operatorIdentifier,
                 instanceBasePath,
-                std::move(resourceContainer),
+                resourceContainer,
                 keySerializer,
                 numberOfKeyGroups,
                 keyGroupRange,
                 localRecoveryConfig,
+                priorityQueueStateType,
                 stateVec,
                 bridge,
                 omniTaskBridge,
@@ -108,6 +113,25 @@ public:
         builder.setEnableIncrementalCheckpointing(incrementalCheckpointing)
                 .setNumberOfTransferringThreads(numberOfTransferThreads)
                 .setWriteBatchSize(writeBatchSize);
+
+        return builder.build();
+    }
+
+    OperatorStateBackend* createOperatorStateBackend(
+        omnistream::EnvironmentV2* env,
+        std::string operatorIdentifier,
+        std::set<std::shared_ptr<OperatorStateHandle>> stateHandles) {
+        std::vector<std::shared_ptr<OperatorStateHandle>> stateVector(stateHandles.begin(), stateHandles.end());
+        auto bridge = env->getTaskStateManager()->getTaskStateManagerBridge();
+        auto omniTaskBridge = env->getTaskStateManager()->getOmniTaskBridge();
+
+        const bool asynchronousSnapshots = true;
+        DefaultOperatorStateBackendBuilder builder(
+            asynchronousSnapshots,
+            operatorIdentifier,
+            stateVector,
+            bridge,
+            omniTaskBridge);
 
         return builder.build();
     }
@@ -258,5 +282,3 @@ private:
     std::once_flag rocksdb_init_flag_;
     bool rocksDbInitialized_ = false;
 };
-
-#endif // OMNISTREAM_EMBEDDEDROCKSDBSTATEBACKEND

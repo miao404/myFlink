@@ -9,59 +9,40 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#ifndef MERGINGWINDOWSET_H
-#define MERGINGWINDOWSET_H
-
 #pragma once
 
+#include <cstdint>
 #include <set>
 #include <vector>
-#include <memory>
 #include <functional>
-#include "../assigners/MergingWindowAssigner.h"
+
+#include "table/runtime/operators/window/assigners/MergingWindowAssigner.h"
 #include "core/api/common/state/MapState.h"
 #include "LRUMap.h"
-#include "runtime/operators/window/TimeWindow.h"
 
-template<typename W>
+template<typename K, typename W>
 class MergingWindowSet {
 public:
-    using MergeFunction = std::function<void(W &, std::unordered_set<W> &, W &, std::vector<W> &)>;
-    using AssignerPtr = std::shared_ptr<MergingWindowAssigner<W>>;
-    using MappingPtr = std::unique_ptr<std::unordered_map<W, W>>;
+    using MergeFunction = std::function<void(W&, std::unordered_set<W>&, W&, std::vector<W>&)>;
 
-    MergingWindowSet() = default;
+    MergingWindowSet(MergingWindowAssigner<W>* windowAssigner, MapState<W, W> *mapping) : mapping(mapping), windowAssigner(windowAssigner) {}
 
     ~MergingWindowSet() = default;
 
-    MergingWindowSet(AssignerPtr windowAssigner, MapState<W, W>* mapping);
+    void initializeCache(const K& key);
 
-    void InitializeCache(BinaryRowData *key);
+    W getStateWindow(const W &window);
 
-    W GetStateWindow(const W &window);
+    void retireWindow(const W &window);
 
-    void RetireWindow(const W &window);
-
-    W AddWindow(const W &newWindow, const MergeFunction &mergeFunction);
-
-    MergingWindowSet(MergingWindowSet &&) = delete;
-    MergingWindowSet &operator=(MergingWindowSet &&other) noexcept
-    {
-        if (this != &other) {
-            this->mapping = other.mapping;
-            this->sortedWindows = other.sortedWindows;
-            this->windowAssigner = std::move(other.windowAssigner);
-        }
-        return *this;
-    }
+    W addWindow(const W &newWindow, const MergeFunction &mergeFunction);
 
 private:
-    static constexpr int MAPPING_CACHE_SIZE = 10000;
+    static constexpr int32_t MAPPING_CACHE_SIZE = 10000;
 
-    // todo need to be HeapMapState, now only support same keyRowData
     MapState<W, W>* mapping;
-    LRUMap<BinaryRowData*, std::set<W>*> cachedSortedWindows{MAPPING_CACHE_SIZE};
+    LRUMap<K, std::set<W>*> cachedSortedWindows{MAPPING_CACHE_SIZE};
     std::set<W>* sortedWindows = nullptr;
-    AssignerPtr windowAssigner;
+    MergingWindowAssigner<W>* windowAssigner;
+    typename MergingWindowAssigner<W>::MergeResultCollector reuseCollector_;
 };
-#endif

@@ -18,6 +18,7 @@
 #include "state/metainfo/StateMetaInfoSnapshot.h"
 #include "runtime/state/SnapshotResult.h"
 #include "runtime/state/StreamStateHandle.h"
+#include "runtime/state/OperatorStateHandle.h"
 #include "runtime/state/restore/KeyGroupEntry.h"
 #include "runtime/checkpoint/CheckpointOptions.h"
 #include "core/fs/Path.h"
@@ -42,6 +43,8 @@ namespace omnistream {
 
         virtual std::vector<StateMetaInfoSnapshot> readMetaData(const std::string &metaStateHandle) = 0;
 
+        virtual std::vector<StateMetaInfoSnapshot> readOperatorMetaData(const std::string &metaStateHandle) = 0;
+
         virtual jobject AcquireSavepointOutputStream(long checkpointId, CheckpointOptions *checkpointOptions) = 0;
 
         virtual std::shared_ptr<SnapshotResult<StreamStateHandle>> CloseSavepointOutputStream(jobject provider) = 0;
@@ -51,6 +54,10 @@ namespace omnistream {
         virtual void WriteSavepointMetadata(jobject provider, const std::vector<std::shared_ptr<StateMetaInfoSnapshot>>& snapshots,
                                             std::string keySerializer) = 0;
 
+        virtual void WriteOperatorMetaData(jobject provider,
+                                           const std::vector<std::shared_ptr<StateMetaInfoSnapshot>>& operatorStateMetaInfoSnapshots,
+                                           const std::vector<std::shared_ptr<StateMetaInfoSnapshot>>& broadcastStateMetaInfoSnapshots) = 0;
+
         virtual long GetSavepointOutputStreamPos(jobject provider) = 0;
 
         virtual void getKeyGroupEntries(jobject inputStream,
@@ -59,6 +66,8 @@ namespace omnistream {
         virtual jobject getSavepointInputStream(const std::string &metaStateHandle) = 0;
 
         virtual void setSavepointInputStreamOffset(jobject inputStream, int64_t offset) = 0;
+
+        virtual int ReadSavepointInputStream(jobject inputStream, int8_t *chunk, size_t offset, size_t len) = 0;
 
         virtual bool isUsingKeyGroupCompression(jobject inputStream) = 0;
 

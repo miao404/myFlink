@@ -27,6 +27,15 @@ JNIEXPORT jint JNICALL Java_org_apache_flink_runtime_io_network_netty_OmniCredit
 
 /*
  * Class:     org_apache_flink_runtime_io_network_netty_OmniCreditBasedSequenceNumberingViewReader
+ * Method:    releaseNativeViewReader
+ * Signature: (J)V
+ */
+JNIEXPORT void JNICALL Java_org_apache_flink_runtime_io_network_netty_OmniCreditBasedSequenceNumberingViewReader_releaseNativeViewReader
+        (JNIEnv *, jobject, jlong);
+
+
+/*
+ * Class:     org_apache_flink_runtime_io_network_netty_OmniCreditBasedSequenceNumberingViewReader
  * Method:    getNextBuffer
  * Signature: (J)I
  */
@@ -47,14 +56,6 @@ JNIEXPORT jlong JNICALL Java_org_apache_flink_runtime_io_network_netty_OmniCredi
  * Signature: (J)V
  */
 JNIEXPORT void JNICALL Java_org_apache_flink_runtime_io_network_netty_OmniCreditBasedSequenceNumberingViewReader_firstDataAvailableNotification
-  (JNIEnv *, jobject, jlong);
-
-/*
- * Class:     org_apache_flink_runtime_io_network_netty_OmniCreditBasedSequenceNumberingViewReader
- * Method:    destroyNativeNettyBufferPool
- * Signature: (J)V
- */
-JNIEXPORT void JNICALL Java_org_apache_flink_runtime_io_network_netty_OmniCreditBasedSequenceNumberingViewReader_destroyNativeNettyBufferPool
   (JNIEnv *, jobject, jlong);
 
 /*

@@ -17,6 +17,7 @@
 #include <stdexcept>
 #include <cstdint>
 #include <nlohmann/json.hpp>
+#include "data/vectorbatch/VectorBatch.h"
 #include "table/data/RowData.h"
 #include "KafkaRecordSerializationSchema.h"
 #include "table/data/GenericRowData.h"
@@ -33,7 +34,9 @@ public:
     DynamicKafkaRecordSerializationSchema(std::vector<std::string>& inputFields,
                                           std::vector<std::string>& inputTypes);
     void RowToJson(RowData* row);
+    void RowToJson(omnistream::VectorBatch *input, int rowIndex);
     KeyValueByteContainer Serialize(RowData* consumedRow);
+    KeyValueByteContainer Serialize(omnistream::VectorBatch *input, int rowIndex);
     KeyValueByteContainer Serialize(String* element);
     KeyValueByteContainer Serialize(Row* row);
 
@@ -45,6 +48,7 @@ private:
     bool upsertMode_;
     std::vector<std::string> inputFields_;
     std::vector<std::string> inputTypes_;
+    std::vector<std::pair<int32_t, int32_t>> decimalInfo;
     nlohmann::ordered_json j;
     std::ostringstream oss;
     char timeBuffer[80];

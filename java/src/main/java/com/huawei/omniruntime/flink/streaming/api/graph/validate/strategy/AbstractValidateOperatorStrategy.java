@@ -32,6 +32,8 @@ public abstract class AbstractValidateOperatorStrategy {
             "TIMESTAMP_WITHOUT_TIME_ZONE(1)",
             "TIMESTAMP_WITHOUT_TIME_ZONE(2)",
             "TIMESTAMP_WITHOUT_TIME_ZONE(3)",
+            "TIMESTAMP_WITHOUT_TIME_ZONE(9)",
+            "VARCHAR",
             "VARCHAR(2147483647)",
             "VARCHAR(2000)",
             "VARCHAR(9)",
@@ -39,7 +41,7 @@ public abstract class AbstractValidateOperatorStrategy {
             "BOOLEAN",
             "DECIMAL64",
             "DECIMAL128",
-            "TIMESTAMP_WITH_LOCAL_TIME_ZONE"));
+            "TIMESTAMP_WITH_LOCAL_TIME_ZONE(3)"));
     private static final Logger LOG = LoggerFactory.getLogger(AbstractValidateOperatorStrategy.class);
 
     static {
@@ -79,6 +81,11 @@ public abstract class AbstractValidateOperatorStrategy {
                 // match DECIMAL64 and DECIMAL128
                 .flatMap(List::stream)
                 .allMatch(type -> {
+                    if (type.matches("^VARCHAR\\([^)]*\\)$")) {
+                        type = "VARCHAR";
+                        LOG.info("converted to VARCHAR");
+                    }
+
                     if (type.matches("^DECIMAL64\\([^)]*\\)$")) {
                         type = "DECIMAL64";
                         LOG.info("converted to DECIMAL64");
@@ -88,7 +95,11 @@ public abstract class AbstractValidateOperatorStrategy {
                         type = "DECIMAL128";
                         LOG.info("converted to DECIMAL128");
                     }
-                    return SUPPORT_DATA_TYPE.contains(type);
+                    if (!SUPPORT_DATA_TYPE.contains(type)) {
+                        LOG.info("The data type {} is not supported.", type);
+                        return false;
+                    }
+                    return true;
                 });
     }
 
@@ -99,5 +110,14 @@ public abstract class AbstractValidateOperatorStrategy {
             dataTypes.add((List<String>) jsonMap.get(name));
         }
         return dataTypes;
+    }
+
+    protected String getStringInfo(Map<String, Object> jsonMap, String name) {
+        Object info = jsonMap.get(name);
+        if (info instanceof String) {
+            return (String) info;
+        } else {
+            return null;
+        }
     }
 }

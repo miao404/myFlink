@@ -8,14 +8,18 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef INTERNALVALUESTATE_H
-#define INTERNALVALUESTATE_H
+
+#pragma once
 
 #include "InternalKvState.h"
 #include "core/api/common/state/ValueState.h"
 
-template <typename K, typename N, typename S>
-class InternalValueState : public InternalKvState<K, N, S>, virtual public ValueState<S> {
+/**
+ *
+ * @tparam K Key type
+ * @tparam N Namespace type
+ * @tparam T Value type
+ */
+template <typename K, typename N, typename T>
+class InternalValueState : public InternalKvState<K, N, T>, public ValueState<T> {
 };
-
-#endif
