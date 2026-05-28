@@ -55,6 +55,7 @@ import org.apache.flink.table.runtime.typeutils.ExternalSerializer;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.runtime.typeutils.RowDataSerializer;
 import org.apache.flink.table.types.logical.BigIntType;
+import org.apache.flink.table.types.logical.IntType;
 import org.apache.flink.table.types.logical.DecimalType;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.LogicalTypeRoot;
@@ -696,6 +697,8 @@ public class OperatorDescriptorHelper {
                 rowFields.put(LogicalTypeDescriptor.createJSONDescriptorVarCharType((VarCharType) type));
             } else if (type instanceof TimestampType) {
                 rowFields.put(LogicalTypeDescriptor.createJSONDescriptorTimestampType((TimestampType) type));
+            } else if (type instanceof IntType) {
+                rowFields.put(LogicalTypeDescriptor.createBasicTypeObject("INTEGER", type.isNullable()));
             } else {
 
             }

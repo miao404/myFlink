@@ -56,6 +56,8 @@
 #include "connector/kafka/sink/ProducerConfig.h"
 #include "connector/kafka/utils/ConfigLoader.h"
 #include "co/KeyedCoProcessOperator.h"
+#include "table/runtime/operators/correlate/StreamCorrelateOperator.h"
+#include "table/runtime/operators/correlate/NativeTableFunctionFactory.h"
 #include "StreamOperatorFactory.h"
 
 namespace omnistream {
@@ -224,6 +226,8 @@ StreamOperator *StreamOperatorFactory::createOperatorAndCollector(omnistream::Op
         return CreatePartitionCommitterOp(opDesc, chainOutput, task);
     } else if (operatorID == OPERATOR_NAME_KEYED_CO_PROCESS) {
         return CreateKeyedCoProcessOp(opDesc, chainOutput, task);
+    } else if (operatorID == OPERATOR_NAME_STREAM_CORRELATE) {
+        return CreateStreamCorrelateOp(opDesc, chainOutput, task);
     } else {
         return nullptr;
     }
@@ -720,5 +724,16 @@ StreamOperator* StreamOperatorFactory::CreateSinkWriterOp(omnistream::OperatorPO
     auto kafkaSink = new KafkaSink(deliveryGuarantee, kafkaProducerConfig, transactionalIdPrefix,
         topic, opDescriptionJSON, maxPushRecords);
     return static_cast<OneInputStreamOperator *>(new SinkWriterOperator(kafkaSink, opDescriptionJSON));
+}
+
+StreamOperator* StreamOperatorFactory::CreateStreamCorrelateOp(OperatorPOD &opConfig,
+    WatermarkGaugeExposingOutput *chainOutput, std::shared_ptr<omnistream::OmniStreamTask> task)
+{
+    auto description = opConfig.getDescription();
+    nlohmann::json opDescriptionJSON = nlohmann::json::parse(description);
+    auto *op = new StreamCorrelateOperator(opDescriptionJSON, chainOutput);
+    op->setup(std::move(task));
+    LOG("Operator StreamCorrelateOperator address " + std::to_string(reinterpret_cast<long>(op)))
+    return static_cast<OneInputStreamOperator *>(op);
 }
 }

@@ -80,6 +80,8 @@ private:
         WatermarkGaugeExposingOutput* chainOutput, std::shared_ptr<omnistream::OmniStreamTask> task);
     static StreamOperator* CreateKeyedCoProcessOp(omnistream::OperatorPOD &opConfig,
                           WatermarkGaugeExposingOutput* chainOutput, std::shared_ptr<omnistream::OmniStreamTask> task);
+    static StreamOperator* CreateStreamCorrelateOp(omnistream::OperatorPOD &opConfig,
+        WatermarkGaugeExposingOutput* chainOutput, std::shared_ptr<omnistream::OmniStreamTask> task);
 };
 }
 
