@@ -31,7 +31,8 @@ enum class BackendDataType {
     ROW_LIST_BK,
     INVALID_BK,
     POJO_BK,
-    SET_LONG
+    SET_LONG,
+    BYTE_ARRAY_BK
 };
 
 inline std::ostream& operator<<(std::ostream& os, const BackendDataType& type) {
@@ -69,21 +70,13 @@ public:
      *     Typically raised by the input view, which may have an underlying I/O channel from which
      *     it reads.
      */
-    virtual void* deserialize(DataInputView& source)
-    {
-        return nullptr;
-    }
-    virtual void serialize(void* record, DataOutputSerializer& target)
-    {
-    }
+    virtual void* deserialize(DataInputView& source) { NOT_IMPL_EXCEPTION }
+    virtual void serialize(void* record, DataOutputSerializer& target) { NOT_IMPL_EXCEPTION }
 
     // new interface for DataStream
-    virtual void deserialize(Object *buffer, DataInputView& source) {};
-    virtual void serialize(Object *buffer, DataOutputSerializer& target) {};
-    virtual Object* GetBuffer()
-    {
-        return nullptr;
-    }
+    virtual void deserialize(Object *buffer, DataInputView& source) { NOT_IMPL_EXCEPTION }
+    virtual void serialize(Object *buffer, DataOutputSerializer& target) { NOT_IMPL_EXCEPTION }
+    virtual Object* GetBuffer() { NOT_IMPL_EXCEPTION }
 
     virtual const char* getName() const;
     virtual BackendDataType getBackendId() const

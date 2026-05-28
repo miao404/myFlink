@@ -89,7 +89,17 @@ public:
                                          collector);
     }
 
-    void initializeState(StreamTaskStateInitializerImpl *initializer, TypeSerializer *keySerializer) override {}
+    void initializeState(StreamTaskStateInitializerImpl *initializer, TypeSerializer *keySerializer) override {
+        INFO_RELEASE("ProcessOperator::initializeState not impl initializeState");
+    }
+
+    void notifyCheckpointComplete(long checkpointId) override {
+        INFO_RELEASE("ProcessOperator::notifyCheckpointComplete not impl checkpointId : " << checkpointId);
+    }
+
+    void notifyCheckpointAborted(long checkpointId) override {
+        INFO_RELEASE("ProcessOperator::notifyCheckpointAborted not impl  checkpointId : " << checkpointId);
+    }
 
     void ProcessWatermark(Watermark* mark) override
     {
@@ -155,20 +165,20 @@ private:
             return op->currentWatermark_;
         }
 
-        void registerProcessingTimeTimer(long time) override {
+        void registerProcessingTimeTimer(int64_t time) override {
             NOT_IMPL_EXCEPTION
         }
-        void registerEventTimeTimer(long time) override
+        void registerEventTimeTimer(int64_t time) override
         {
             NOT_IMPL_EXCEPTION
         }
 
-        void deleteProcessingTimeTimer(long time) override
+        void deleteProcessingTimeTimer(int64_t time) override
         {
             NOT_IMPL_EXCEPTION
         }
 
-        void deleteEventTimeTimer(long time) override
+        void deleteEventTimeTimer(int64_t time) override
         {
             NOT_IMPL_EXCEPTION
         }

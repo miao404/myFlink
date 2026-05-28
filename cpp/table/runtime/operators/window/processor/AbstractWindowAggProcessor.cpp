@@ -12,6 +12,7 @@
 #include "AbstractWindowAggProcessor.h"
 #include "runtime/generated/function/CountWindowAggFunction.h"
 #include "runtime/generated/function/MinMaxWindowAggFunction.h"
+#include "runtime/generated/function/SumWindowAggFunction.h"
 #include "table/runtime/generated/function/GlobalEmptyNamespaceFunction.h"
 #include "runtime/operators/VectorBatchUtils.h"
 
@@ -61,6 +62,8 @@ AbstractWindowAggProcessor::AbstractWindowAggProcessor(const nlohmann::json desc
             globalFunction = new MinMaxWindowAggFunction(0, 0, 0, MAX_FUNC, sliceAssigner);
         } else if (aggType == "MIN") {
            globalFunction = new MinMaxWindowAggFunction(0, 0, 0, MIN_FUNC, sliceAssigner);
+        }else if (aggType == "SUM"){
+            globalFunction = new SumWindowAggFunction(0, 0, 0, sliceAssigner);
         } else {
             throw std::runtime_error("Unsupported aggregate type: " + aggTypeStr);
         }
@@ -124,8 +127,8 @@ void AbstractWindowAggProcessor::open(AbstractKeyedStateBackend<RowData*> *keyed
     BinaryRowDataSerializer *binaryRowDataSerializer = new BinaryRowDataSerializer(1);
     // init WindowValueState
     std::string aggName = "window-aggs";
-    ValueStateDescriptor<RowData*> *accDesc = new ValueStateDescriptor<RowData*>(aggName, binaryRowDataSerializer);
-    using S = HeapValueState<RowData*, int64_t, RowData*>;
+    auto* accDesc = new ValueStateDescriptor<RowData*>(aggName, binaryRowDataSerializer);
+    using S = InternalValueState<RowData*, int64_t, RowData*>;
     S* state = keyedStateBackend->template getOrCreateKeyedState<RowData*, S, RowData*>(new LongSerializer(), accDesc);
     windowState = std::make_unique<WindowValueState<RowData*, int64_t, RowData*>>(state);
     windowBuffer =std::make_unique<RecordsWindowBuffer>(config, windowState.get(), output, sliceAssigner, internalTimerService);

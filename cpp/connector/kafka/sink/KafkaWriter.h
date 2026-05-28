@@ -39,6 +39,7 @@
 #include "include/common.h"
 #include "../bind_core_manager.h"
 #include "api/common/TimerThreadPool.h"
+#include "streaming/api/operators/sink/InitContextImpl.h"
 
 class KafkaWriter {
 public:
@@ -47,12 +48,15 @@ public:
                 std::string& transactionalIdPrefix,
                 std::string& topic,
                 const nlohmann::json& description,
-                int64_t maxPushRecords);
+                int64_t maxPushRecords,
+                InitContextImpl<void*>* initContext,
+                const std::vector<KafkaWriterState>& states);
     ~KafkaWriter();
 
     void write(String *element);
     void write(Row *element);
     void write(RowData *element);
+    void write(omnistream::VectorBatch *input, int rowIndex);
 
     void produce(RdKafka::Producer* kafkaProducer,
                  RdKafka::Topic *rd_topic,
@@ -62,10 +66,12 @@ public:
     void Flush(bool endOfInput);
     std::vector<KafkaCommittable> prepareCommit();
     std::vector<KafkaWriterState> recoveredStates;
-    RdKafka::Conf* kafkaProducerConfig;
+    RdKafka::Conf* kafkaProducerConfig = nullptr;
     std::string topic;
+    KafkaWriterState* kafkaWriterState = nullptr;
 
     void SetSubTaskIdx(int32_t subtaskIdx);
+    std::vector<KafkaWriterState> snapshotState(long checkpointId);
 
 private:
     static constexpr const char* KAFKA_PRODUCER_METRIC_NAME = "KafkaProducer";
@@ -77,7 +83,7 @@ private:
 
     DeliveryGuarantee deliveryGuarantee;
     std::string transactionalIdPrefix = "kafka-sink";
-    DynamicKafkaRecordSerializationSchema *recordSerializer;
+    DynamicKafkaRecordSerializationSchema *recordSerializer = nullptr;
     std::exception_ptr asyncProducerException;
     nlohmann::json description;
     std::vector<std::string> inputFields;
@@ -116,8 +122,8 @@ private:
     std::shared_ptr<FlinkKafkaInternalProducer> getOrCreateTransactionalProducer(const std::string& transactionalId);
     void ProduceRecord(KeyValueByteContainer &record);
     void handleRecord();
-    RdKafka::Topic *rd_topic1;
-    RdKafka::Topic *rd_topic2;
+    RdKafka::Topic *rd_topic1 = nullptr;
+    RdKafka::Topic *rd_topic2 = nullptr;
     int32_t partitionNum = 0;
     int32_t instanceId = 0;
     int producerIndexOne = 1;
@@ -135,7 +141,13 @@ private:
 
     void timer_thread()
     {
+        if (!timer_worker_thread_flag.load()) {
+            return;
+        }
         std::unique_lock<std::mutex> gLock(gMtx);
+        if (!timer_worker_thread_flag.load()) {
+            return;
+        }
         handleRecord();
     }
 

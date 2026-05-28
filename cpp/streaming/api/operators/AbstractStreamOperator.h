@@ -8,21 +8,18 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef FLINK_TNEL_ABSTRACTSTREAMOPERATOR_H
-#define FLINK_TNEL_ABSTRACTSTREAMOPERATOR_H
 
-#include <type_traits>
+#pragma once
+
 #include <nlohmann/json.hpp>
 #include "StreamOperator.h"
 #include "AbstractStreamOperator.h"
 #include "StreamOperatorStateHandler.h"
 #include "Output.h"
-#include "streaming/runtime/streamrecord/StreamRecord.h"
 #include "StreamingRuntimeContext.h"
 #include "StreamTaskStateInitializerImpl.h"
 #include "ChainingStrategy.h"
 #include "Input.h"
-#include "data/binary/BinaryRowData.h"
 #include "table/runtime/operators/InternalTimerServiceImpl.h"
 #include "table/runtime/operators/InternalTimeServiceManager.h"
 #include "KeyContext.h"
@@ -31,6 +28,7 @@
 #include "table/typeutils/RowDataSerializer.h"
 #include "runtime/metrics/groups/TaskMetricGroup.h"
 #include "streaming/runtime/tasks/omni/OmniStreamTask.h"
+#include "runtime/state/StateInitializationContextImpl.h"
 
 /**
  * K: such as Object*
@@ -132,18 +130,23 @@ public:
         return new BinaryRowDataSerializer(1);
     };
 
+    void initializeState(StateInitializationContextImpl<K> *context)  override {}
     // KeySerializer should be retrieved from description.getStateKeySerializer(getUserCodeClassloader()),
     // but we're just passing it through this function for now
     void initializeState(StreamTaskStateInitializerImpl *initializer, TypeSerializer *keySerializer) override
     {
         LOG("abstractStreamOperator::initializeState")
+        auto operatorID = this->GetOperatorID();
         StreamOperatorStateContextImpl<K> *context =
-            initializer->streamOperatorStateContext<K>(keySerializer, this, processingTimeService);
+            initializer->streamOperatorStateContext<K>(keySerializer, this, processingTimeService, &operatorID);
         stateHandler = new StreamOperatorStateHandler<K>(context);
         auto stateStore = stateHandler->getKeyedStateStore();
-        runtimeContext->setKeyedStateStore(stateStore);
-        runtimeContext->setEnvironment(initializer->getEnvironment());
+        if (runtimeContext != nullptr) {
+            runtimeContext->setKeyedStateStore(stateStore);
+            runtimeContext->setEnvironment(initializer->getEnvironment());
+        }
         timeServiceManager = context->getInternalTimeServiceManager();
+        stateHandler->initializeOperatorState(this);
     }
     StreamingRuntimeContext<K> *getRuntimeContext() const
     {
@@ -179,7 +182,7 @@ public:
     virtual void ProcessWatermark(Watermark* mark)
     {
         if (timeServiceManager != nullptr) {
-            timeServiceManager->template advanceWatermark<VoidNamespace>(mark);
+            timeServiceManager->advanceWatermark(mark);
         }
         output->emitWatermark(mark);
     }
@@ -226,11 +229,15 @@ public:
             bridge);
     }
 
-    void notifyCheckpointComplete(long checkpointId)
+    void notifyCheckpointComplete(long checkpointId) override
     {
         stateHandler->notifyCheckpointComplete(checkpointId);
     }
 
+    void notifyCheckpointAborted(long checkpointId) override
+    {
+        stateHandler->notifyCheckpointAborted(checkpointId);
+    }
 protected:
     // own  and  own the backend through stateHandler
     StreamOperatorStateHandler<K> *stateHandler = nullptr;
@@ -258,4 +265,3 @@ private:
         }
     }
 };
-#endif // FLINK_TNEL_ABSTRACTSTREAMOPERATOR_H

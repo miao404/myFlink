@@ -12,6 +12,7 @@
 #include "OmniTask.h"
 
 #include <stdexcept>
+#include <thread>
 #include <partition/consumer/SingleInputGate.h>
 #include <streaming/runtime/tasks/omni/OmniOneInputStreamTask.h>
 #include <streaming/runtime/tasks/omni/OmniTwoInputStreamTask.h>
@@ -119,10 +120,12 @@ namespace omnistream {
 
     void OmniTask::cancel()
     {
+        std::thread::id tid = std::this_thread::get_id();
         if (invokable_ != nullptr) {
+            auto* inputProc = invokable_->input_processor();
             invokable_->cancel();
-            if (invokable_->input_processor() != nullptr) {
-                invokable_->input_processor()->close();
+            if (inputProc != nullptr) {
+                inputProc->close();
             }
         }
     }
@@ -269,7 +272,6 @@ namespace omnistream {
     void OmniTask::DoRunInvoke(long streamTaskAddress)
     {
         int count = 0;
-
         while (!flag.load()) {
             INFO_RELEASE("find OmniTask still uninitialzed, tasm name : " << taskNameWithSubtask_)
             count++;
@@ -407,10 +409,8 @@ namespace omnistream {
         }
         std::shared_ptr<ResultPartitionManager> resultPartitionManager = omniShuffleEnv->getResultPartitionManager();
 
-        auto reader = std::make_unique<OmniCreditBasedSequenceNumberingViewReader>(partitionId,
-            subPartitionId, resultBufferAddress);
-        auto readerAddr = reinterpret_cast<long>(reader.get());
-
+        auto* reader = new OmniCreditBasedSequenceNumberingViewReader(partitionId,
+                                                               subPartitionId, resultBufferAddress);
         int retryCount = 0;
         while (true) {
             try {
@@ -423,12 +423,11 @@ namespace omnistream {
             if (++retryCount >= 3) {
                 LOG("Failed to request subpartition view after 3 attempts");
                 INFO_RELEASE("!!!!!!!!!!! Fail to create OmniCreditBasedSequenceNumberingViewReader after 3 times ");
-                reader.reset();
+                delete reader;
                 return -1;
             }
         }
-        omniCreditBasedSequenceNumberingViewReaders.push_back(std::move(reader));
-        return readerAddr;
+        return reinterpret_cast<long>(reader);
     }
 
     std::shared_ptr<TaskMetricGroup> OmniTask::getTaskMetricGroup()
@@ -451,6 +450,7 @@ namespace omnistream {
     }
     void OmniTask::notifyCheckpointComplete(long checkpointID, long inputState)
     {
+        INFO_RELEASE("savepoint: OmniTask notifyCheckpointComplete: " << checkpointID);
         if (inputState == 3 && invokable_ != nullptr) {
             try {
                 invokable_->notifyCheckpointCompleteAsync(checkpointID);
@@ -472,6 +472,8 @@ namespace omnistream {
                                     long latestCompletedCheckpointId,
                                     OmniTask::NotifyCheckpointOperation notifyCheckpointOperation)
     {
+        INFO_RELEASE("savepoint: OmniTask notifyCheckpoint: " << checkpointId);
+        INFO_RELEASE("savepoint: OmniTask notifyCheckpoint: " << latestCompletedCheckpointId);
         if (executionState == ExecutionState::RUNNING && invokable_ != nullptr) {
             try {
                 switch (notifyCheckpointOperation) {
@@ -479,6 +481,7 @@ namespace omnistream {
                         invokable_->notifyCheckpointAbortAsync(checkpointId, latestCompletedCheckpointId);
                         break;
                     case OmniTask::NotifyCheckpointOperation::COMPLETE:
+                        INFO_RELEASE("savepoint: OmniTask notifyCheckpointComplete: " << checkpointId);
                         invokable_->notifyCheckpointCompleteAsync(checkpointId);
                         break;
                     case OmniTask::NotifyCheckpointOperation::SUBSUME:
@@ -622,6 +625,8 @@ namespace omnistream {
         checkpointid,
         checkpointtimestamp,
         std::chrono::system_clock::now().time_since_epoch().count());
+        /* TODO 规避：默认设置为 RUNNING 状态, 后续根据实际情况调整 */
+        executionState = ExecutionState::RUNNING;
         if (executionState == ExecutionState::RUNNING) {
             if (checkpointableTask == nullptr) {
                 throw std::runtime_error("invokable is not checkpointable");

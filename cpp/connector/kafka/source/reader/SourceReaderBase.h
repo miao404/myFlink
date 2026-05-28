@@ -122,7 +122,23 @@ public:
     // 对拆分状态进行快照
     std::vector<KafkaPartitionSplit> snapshotState(long checkpointId)  override
     {
-        return {};
+        std::vector<KafkaPartitionSplit> splits;
+        for (const auto& [splitId, splitContext] : this->splitStates) {
+            if (splitContext->state->getCurrentOffset() >= 0) {
+                splits.push_back(splitContext->state->toKafkaPartitionSplit());
+            }
+        }
+        return splits;
+    }
+
+    // 通知检查点完成
+    void notifyCheckpointComplete(long checkpointId)  override {
+        LOG("SourceReaderBase::notifyCheckpointComplete not impl, checkpointId : " << checkpointId);
+    }
+
+    // 通知检查点完成
+    void notifyCheckpointAborted(long checkpointId)  override {
+        LOG("SourceReaderBase::notifyCheckpointAborted not impl, checkpointId : " << checkpointId);
     }
 
     // 添加拆分
@@ -175,12 +191,12 @@ protected:
     virtual KafkaPartitionSplitState* initializedState(KafkaPartitionSplit* split) = 0;
 
     virtual void onSplitFinished(const std::unordered_map<std::string, KafkaPartitionSplitState*>& finishedSplitIds) {};
+    SplitFetcherManager<E, SplitT>* splitFetcherManager;
 private:
     bool isBatch;
     FutureCompletingBlockingQueue<E>* elementsQueue;
     std::unordered_map<std::string, SplitContext*> splitStates;
     RecordEmitter<E, SplitStateT>* recordEmitter;
-    SplitFetcherManager<E, SplitT>* splitFetcherManager;
     SourceReaderContext* context;
     // 最新从拆分读取器提取的按拆分的记录批次
     RecordsWithSplitIds<E>* currentFetch = nullptr;

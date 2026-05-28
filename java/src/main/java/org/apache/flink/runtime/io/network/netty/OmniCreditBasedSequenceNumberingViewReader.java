@@ -152,7 +152,7 @@ public class OmniCreditBasedSequenceNumberingViewReader
                     LOG.error("create nativeCreditBasedSequenceNumberingViewReader failed");
                     throw new PartitionNotFoundException(resultPartitionId);
                 }
-                LOG.info("requestSubpartitionView for task: {} ## {} create result = {},{}",
+                LOG.info("ViewReader for task : {} ## {} create result = {},{}",
                         taskName.substring(0, 15),
                         subPartitionIndex, nativeCreditBasedSequenceNumberingViewReaderRef,
                         this.hashCode());
@@ -249,6 +249,14 @@ public class OmniCreditBasedSequenceNumberingViewReader
             notifyDataAvailableForNetty();
         }
         return res;
+    }
+
+    private void releaseNativeViewReader() {
+        if (nativeCreditBasedSequenceNumberingViewReaderRef == -1) {
+            return ;
+        }
+        LOG.info("releaseNativeViewReader is : " + nativeCreditBasedSequenceNumberingViewReaderRef);
+        releaseNativeViewReader(nativeCreditBasedSequenceNumberingViewReaderRef);
     }
 
     /**
@@ -501,13 +509,10 @@ public class OmniCreditBasedSequenceNumberingViewReader
         NativeBufferRecycler.unRegisterInstance(nativeCreditBasedSequenceNumberingViewReaderRef);
         NativeNetworkBufferRecycler.unRegisterInstance(nativeCreditBasedSequenceNumberingViewReaderRef);
 
-        if (nativeCreditBasedSequenceNumberingViewReaderRef != -1) {
-            destroyNativeNettyBufferPool(nativeCreditBasedSequenceNumberingViewReaderRef);
-        }
         LOG.info("OmniCreditBasedSequenceNumberingViewReader of {}## {} and native ref = {}"
                         + "............................is stopped......................................",
                 taskName.substring(0, 15), subPartitionIndex, nativeCreditBasedSequenceNumberingViewReaderRef);
-
+        releaseNativeViewReader();
         setNativeCreditBasedSequenceNumberingViewReaderRef(-1);
     }
 
@@ -592,6 +597,12 @@ public class OmniCreditBasedSequenceNumberingViewReader
             int numCreditsAvailable);
 
     /**
+     *
+     * @param nativeCreditBasedSequenceNumberingViewReaderRef nativeViewReader point
+     */
+    public native void releaseNativeViewReader(long nativeCreditBasedSequenceNumberingViewReaderRef);
+
+    /**
      * getNextBuffer
      *
      * @param nativeCreditBasedSequenceNumberingViewReaderRef nativeCreditBasedSequenceNumberingViewReaderRef
@@ -622,11 +633,5 @@ public class OmniCreditBasedSequenceNumberingViewReader
      */
     public native void firstDataAvailableNotification(long nativeCreditBasedSequenceNumberingViewReaderRef);
 
-    /**
-     * destroyNativeNettyBufferPool
-     *
-     * @param nativeCreditBasedSequenceNumberingViewReaderRef nativeCreditBasedSequenceNumberingViewReaderRef
-     */
-    private native void destroyNativeNettyBufferPool(long nativeCreditBasedSequenceNumberingViewReaderRef);
     private native void resumeConsumption(long nativeCreditBasedSequenceNumberingViewReaderRef);
 }

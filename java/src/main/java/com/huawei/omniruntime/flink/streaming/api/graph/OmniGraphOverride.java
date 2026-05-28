@@ -132,11 +132,17 @@ public final class OmniGraphOverride {
 
     static {
         try {
-            Map<String, String> envMap = System.getenv();
-            if (!CollectionUtil.isNullOrEmpty(envMap) && envMap.containsKey("FLINK_PERFORMANCE")) {
-                String flinkPerformance = envMap.getOrDefault("FLINK_PERFORMANCE", "true");
-                LOG.info("flinkPerformance is {}", flinkPerformance);
-                performanceMode = flinkPerformance.equals("true");
+            String flinkPerformance = System.getProperty("FLINK_PERFORMANCE");
+            if (flinkPerformance != null) {
+                LOG.info("flinkPerformance from JVM property is {}", flinkPerformance);
+                performanceMode = "true".equals(flinkPerformance);
+            } else {
+                Map<String, String> envMap = System.getenv();
+                if (!CollectionUtil.isNullOrEmpty(envMap) && envMap.containsKey("FLINK_PERFORMANCE")) {
+                    flinkPerformance = envMap.getOrDefault("FLINK_PERFORMANCE", "true");
+                    LOG.info("flinkPerformance is {}", flinkPerformance);
+                    performanceMode = "true".equals(flinkPerformance);
+                }
             }
         } catch (Exception exception) {
             LOG.warn("get env failed! ", exception);
@@ -149,6 +155,7 @@ public final class OmniGraphOverride {
                     "WatermarkAssigner",
                     "StreamRecordTimestampInserter",
                     "ConstraintEnforcer",
+                    "GroupAggregate",
                     "Correlate"));
         } else {
             SUPPORT_OP_NAME.addAll(Arrays.asList(
@@ -194,11 +201,16 @@ public final class OmniGraphOverride {
             "TIMESTAMP_WITHOUT_TIME_ZONE(1)",
             "TIMESTAMP_WITHOUT_TIME_ZONE(2)",
             "TIMESTAMP_WITHOUT_TIME_ZONE(3)",
+            "TIMESTAMP_WITHOUT_TIME_ZONE(9)",
             "VARCHAR(2147483647)",
             "VARCHAR(2000)",
             "VARCHAR(9)",
+            "VARCHAR",
             "STRING",
-            "TIMESTAMP_WITH_LOCAL_TIME_ZONE"));
+            "TIMESTAMP_WITH_LOCAL_TIME_ZONE(0)",
+            "TIMESTAMP_WITH_LOCAL_TIME_ZONE(1)",
+            "TIMESTAMP_WITH_LOCAL_TIME_ZONE(2)",
+            "TIMESTAMP_WITH_LOCAL_TIME_ZONE(3)"));
 
     private static final Set<String> SINK_SUPPORT_DATA_TYPE = new HashSet<>(Arrays.asList(
             "BIGINT",
@@ -207,13 +219,14 @@ public final class OmniGraphOverride {
             "TIMESTAMP_WITHOUT_TIME_ZONE(1)",
             "TIMESTAMP_WITHOUT_TIME_ZONE(2)",
             "TIMESTAMP_WITHOUT_TIME_ZONE(3)",
+            "TIMESTAMP_WITHOUT_TIME_ZONE(9)",
             "VARCHAR(2147483647)",
             "VARCHAR(2000)",
             "VARCHAR(9)",
             "STRING",
             "DECIMAL64",
             "DECIMAL128",
-            "TIMESTAMP_WITH_LOCAL_TIME_ZONE"));
+            "TIMESTAMP_WITH_LOCAL_TIME_ZONE(3)"));
 
     /**
      * setStateBackend
@@ -241,8 +254,7 @@ public final class OmniGraphOverride {
                                                     Map<Integer, StreamingJobGraphGenerator.OperatorChainInfo> chainInfos,
                                                     Map<Integer, Map<Integer, StreamConfig>> chainedConfigs,
                                                     Map<Integer, StreamConfig> vertexConfigs,
-                                                    JobType jobType,
-                                                    boolean checkpointingEnabled) {
+                                                    JobType jobType) {
 
         StreamConfig vertexConfig = new StreamConfig(vertexEntry.getValue().getConfiguration());
         Integer vertexID = vertexEntry.getKey();
@@ -251,15 +263,7 @@ public final class OmniGraphOverride {
 
         JobVertex jobVertex = vertexEntry.getValue();
 
-        if (validateVertexChainInfoForOmniTask(vertexID, chainInfos, chainedConfigs, jobVertex, vertexConfigs,
-                jobType, checkpointingEnabled)) {
-            if (checkpointingEnabled && (vertexConfig.getOperatorName().contains("Source")
-                    || vertexConfig.getOperatorName().contains("Sink")
-                    || vertexConfig.getOperatorName().contains("Map"))) {
-                LOG.info("validateVertexForOmniTask  false for : vertexID is {}, and vertexName {}", vertexID, vertexConfig.getOperatorName());
-                vertexConfig.setUseOmniEnabled(false);
-                return false;
-            }
+        if (validateVertexChainInfoForOmniTask(vertexID, chainInfos, chainedConfigs, jobVertex, vertexConfigs, jobType)) {
             LOG.info("validateVertexForOmniTask  true for : vertexID is {}, and vertexName {}", vertexID, vertexConfig.getOperatorName());
             vertexConfig.setUseOmniEnabled(true);
             return true;
@@ -310,8 +314,7 @@ public final class OmniGraphOverride {
     private static boolean validateVertexChainInfoForOmniTask(Integer vertexID,
                                                               Map<Integer, StreamingJobGraphGenerator.OperatorChainInfo> chainInfos,
                                                               Map<Integer, Map<Integer, StreamConfig>> chainedConfigs, JobVertex jobVertex,
-                                                              Map<Integer, StreamConfig> vertexConfigs, JobType jobType,
-                                                              boolean checkpointingEnabled) {
+                                                              Map<Integer, StreamConfig> vertexConfigs, JobType jobType) {
         // walkthrough each operator
         StreamingJobGraphGenerator.OperatorChainInfo chainInfo = chainInfos.get(vertexID);
         if (chainInfo == null) {
@@ -322,7 +325,7 @@ public final class OmniGraphOverride {
         StreamGraph streamGraph = chainInfo.getStreamGraph();
         List<StreamNode> chainedNode = chainInfo.getAllChainedNodes();
         for (StreamNode node : chainedNode) {
-            if (validateNodeForOmniTask(vertexID, vertexConfigs, jobType, streamGraph, node, checkpointingEnabled)) {
+            if (validateNodeForOmniTask(vertexID, vertexConfigs, jobType, streamGraph, node)) {
                 return false;
             }
         }
@@ -330,8 +333,7 @@ public final class OmniGraphOverride {
         StreamNode lastNode = chainedNode.get(0);
         StreamNode firstNode = chainedNode.get(chainedNode.size() - 1);
 
-        if (checkpointingEnabled
-                && jobType == JobType.STREAM
+        if (jobType == JobType.STREAM
                 && "Map".equals(lastNode.getOperatorName())
                 && firstNode.getOperatorFactory() instanceof SourceOperatorFactory) {
             SourceOperatorFactory<?> sourceOperatorFactory = (SourceOperatorFactory<?>) firstNode.getOperatorFactory();
@@ -404,8 +406,7 @@ public final class OmniGraphOverride {
     }
 
     private static boolean validateNodeForOmniTask(Integer vertexID, Map<Integer, StreamConfig> vertexConfigs,
-                                                   JobType jobType, StreamGraph streamGraph, StreamNode node,
-                                                   boolean checkpointingEnabled) {
+                                                   JobType jobType, StreamGraph streamGraph, StreamNode node) {
         String operatorName = node.getOperatorName();
         String operatorDescription = node.getOperatorDescription();
         switch (jobType) {
@@ -432,7 +433,7 @@ public final class OmniGraphOverride {
                 boolean result;
                 try {
                     result = validateWatermark(node) && StreamNodeOptimized.getInstance().setExtraDescription(
-                            node, streamConfig, streamGraph, jobType, checkpointingEnabled);
+                            node, streamConfig, streamGraph, jobType);
                 } catch (NoSuchFieldException | IllegalAccessException | IOException | ClassNotFoundException e) {
                     throw new FlinkRuntimeException(
                             "Error occurs during the process of compatibility between new and old sinks or sources", e);
@@ -693,6 +694,7 @@ public final class OmniGraphOverride {
             String opSimpleName = extractOperatorName(operatorName);
 
             if (!SUPPORT_OP_NAME.contains(opSimpleName)) {
+                LOG.info("The operator name {} is not supported.", opSimpleName);
                 return false;
             }
             if (operatorDescription.contains("INVALID")) {

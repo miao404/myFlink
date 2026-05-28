@@ -9,16 +9,14 @@
  * See the Mulan PSL v2 for more details.
  */
 #include "RecordsWindowBuffer.h"
-#include "runtime/generated/function/AverageFunction.h"
 #include "runtime/generated/function/CountDistinctFunction.h"
 #include "runtime/dataview/PerKeyStateDataViewStore.h"
-#include "runtime/generated/function/CountFunction.h"
 #include "runtime/generated/function/MinMaxFunction.h"
-#include "runtime/generated/function/SumFunction.h"
 #include "table/runtime/generated/function/MinMaxWindowAggFunction.h"
 #include "table/typeutils/BinaryRowDataSerializer.h"
 #include "table/runtime/generated/function/GlobalEmptyNamespaceFunction.h"
 #include "runtime/generated/function/CountWindowAggFunction.h"
+#include "runtime/generated/function/SumWindowAggFunction.h"
 #include "table/runtime/operators/VectorBatchUtils.h"
 
 RecordsWindowBuffer::RecordsWindowBuffer(const nlohmann::json& config, WindowValueState<RowData*, int64_t, RowData*>* state,
@@ -106,6 +104,8 @@ void RecordsWindowBuffer::CreateFunctions(SliceAssigner *sliceAssigner,
                                                         aggValueIndex, MIN_FUNC, sliceAssigner);
             globalFunction =  std::make_unique<MinMaxWindowAggFunction>(0, 0, 0, MIN_FUNC, sliceAssigner);
         } else if (aggType == "SUM") {
+            localFunction = std::make_unique<SumWindowAggFunction>(keyedIndex.size(), accStartingIndex, aggValueIndex, sliceAssigner);
+            globalFunction =  std::make_unique<SumWindowAggFunction>(0, 0, 0, sliceAssigner);
         } else {
             throw std::runtime_error("Unsupported aggregate type: " + aggTypeStr);
         }
@@ -140,10 +140,13 @@ std::string RecordsWindowBuffer::extractAggFunction(const std::string& input)
     std::regex aggRegex(R"((?:MAX|COUNT|SUM|MIN|AVG))", std::regex_constants::icase);
     std::smatch match;
     if (std::regex_search(input, match, aggRegex)) {
-        return match.str();
-    } else {
-        return "NONE";
+        std::string aggType = match.str();
+        std::transform(aggType.begin(), aggType.end(), aggType.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+        return aggType;
     }
+
+    return "NONE";
 }
 
 //skip droped records, only add valid records to window buffer

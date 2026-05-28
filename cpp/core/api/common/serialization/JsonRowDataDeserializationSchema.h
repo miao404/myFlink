@@ -76,12 +76,13 @@ public:
             case omniruntime::type::DataTypeId::OMNI_TIMESTAMP_WITHOUT_TIME_ZONE:
             case omniruntime::type::DataTypeId::OMNI_TIMESTAMP:{
                 vectorBatch->SetValueAt(colIndex, rowIndex,
-                                        TimestampData::fromString(fieldIt->get<std::string>())->getMillisecond());
+                                        TimestampData::stringToEpochMillis(fieldIt->get<std::string>()));
                 break;
             }
             case (omniruntime::type::DataTypeId::OMNI_TIMESTAMP_WITH_LOCAL_TIME_ZONE) : {
-                vectorBatch->SetValueAt(colIndex, rowIndex,
-                                        TimestampData::fromLocalTimeString(fieldIt->get<std::string>())->getMillisecond());
+                const TimestampData *timeString = TimestampData::fromLocalTimeString(fieldIt->get<std::string>());
+                vectorBatch->SetValueAt(colIndex, rowIndex,timeString->getMillisecond());
+                delete timeString;
                 break;
             }
             case omniruntime::type::DataTypeId::OMNI_CHAR:

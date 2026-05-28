@@ -8,8 +8,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef FLINK_TNEL_WINDOWJOINOPERATOR_H
-#define FLINK_TNEL_WINDOWJOINOPERATOR_H
+
+#pragma once
 #include <set>
 #include <vector>
 #include "table/runtime/operators/join/AbstractStreamingJoinOperator.h"
@@ -54,7 +54,7 @@ public:
         LOG(">>>>>>>>>>")
         if (this->combinedWatermark->UpdateWatermark(0, watermark->getTimestamp())) {
             if (this->timeServiceManager != nullptr) {
-                this->timeServiceManager->template advanceWatermark<int64_t>(new Watermark(this->combinedWatermark->GetCombinedWatermark()));
+                this->timeServiceManager->advanceWatermark(new Watermark(this->combinedWatermark->GetCombinedWatermark()));
             }
             this->output->emitWatermark(new Watermark(this->combinedWatermark->GetCombinedWatermark()));
         }
@@ -64,7 +64,7 @@ public:
         LOG(">>>>>>>>>>")
         if (this->combinedWatermark->UpdateWatermark(1, watermark->getTimestamp())) {
             if (this->timeServiceManager != nullptr) {
-                this->timeServiceManager->template advanceWatermark<int64_t>(new Watermark(this->combinedWatermark->GetCombinedWatermark()));
+                this->timeServiceManager->advanceWatermark(new Watermark(this->combinedWatermark->GetCombinedWatermark()));
             }
             this->output->emitWatermark(new Watermark(this->combinedWatermark->GetCombinedWatermark()));
         }
@@ -91,7 +91,6 @@ protected:
     WindowListState<KeyType, int64_t, VectorBatchId> *leftWindowState;
     WindowListState<KeyType, int64_t, VectorBatchId> *rightWindowState;
     ::FilterFunc generatedFilter; // Use global scope resolution to avoid ambiguity
-    bool hasKey;
     std::vector<int32_t> leftKeyIndex;
     std::vector<int32_t> rightKeyIndex;
     void buildInner(
@@ -117,6 +116,8 @@ private:
     // Vector, rowId, colId, valAddressPtr, isNullPtr
     std::vector<void (*)(omniruntime::vec::BaseVector *, int32_t, int32_t, int64_t *, bool *)> filterFuncPtrs;
     std::vector<bool> filterNullKeys;
+    std::vector<int64_t> leftMaxTimestamps;
+    std::vector<int64_t> rightMaxTimestamps;
 
     template <typename TYPE>
     void insertLeft(int colIdx, std::vector<VectorBatchId> *leftElements, std::vector<VectorBatchId> *rightElements,
@@ -143,7 +144,6 @@ template <typename KeyType>
 WindowJoinOperator<KeyType>::WindowJoinOperator(
     const nlohmann::json &config, Output *output, TypeSerializer *leftSerializer, TypeSerializer *rightSerializer)
     : TableStreamOperator<KeyType>(new TimestampedCollector(output)),
-      hasKey(config["leftJoinKey"].size() != 0),
       isNonEquiCondition(config.contains("nonEquiCondition") && !config["nonEquiCondition"].is_null()),
       leftSerializer(leftSerializer), rightSerializer(rightSerializer),
       leftWindowEndIndex(config["leftWindowEndIndex"]), rightWindowEndIndex(config["rightWindowEndIndex"]),
@@ -169,12 +169,11 @@ template <typename KeyType>
 WindowJoinOperator<KeyType>::~WindowJoinOperator()
 {
     delete collector;
-    if(hasKey){
-        delete keySelectorLeft;
-        keySelectorLeft = nullptr;
-        delete keySelectorRight;
-        keySelectorRight = nullptr;
-    }
+    delete keySelectorLeft;
+    keySelectorLeft = nullptr;
+    delete keySelectorRight;
+    keySelectorRight = nullptr;
+    
 }
 
 template <typename KeyType>
@@ -199,33 +198,23 @@ void WindowJoinOperator<KeyType>::open()
     rightWindowState = new WindowListState<KeyType, int64_t, VectorBatchId>(
         keyedStateBackend->template getOrCreateKeyedState<int64_t, S, std::vector<VectorBatchId>*>(
             new LongSerializer(), rightDescriptor));
-    if (hasKey) {
-            // Allocate the selectors only if we are in Keyed Mode
-            std::vector<int> leftKeyTypes;
-            std::vector<int> rightKeyTypes;
-            for (auto kIndex: this->leftKeyIndex) {
-                leftKeyTypes.push_back(this->leftTypes[kIndex]);
-            }
-            for (auto kIndex : this->rightKeyIndex) {
-                rightKeyTypes.push_back(this->rightTypes[kIndex]);
-            }
-            // make sure the key types are the same
-            if (leftKeyTypes != rightKeyTypes) {
-                throw std::runtime_error("Left key types do not match right key types");
-            }   
-            this->keySelectorLeft = new KeySelector<KeyType>(leftKeyTypes, this->leftKeyIndex);
-            this->keySelectorRight = new KeySelector<KeyType>(rightKeyTypes, this->rightKeyIndex);
-            LOG("WindowJoinOperator opened in KEYED mode.") 
-    } else {
-           LOG("WindowJoinOperator opened with no key")
-            //If a windowJoin has no key, the parallelism is restricted to 1(ignore the conf set). 
-           //Using a default key is a valid workaround, but it will fail if optimization allows parallelism > 1. 
-           if constexpr (std::is_same_v<KeyType, int64_t>) {
-                 this->setCurrentKey(0);
-            } else if constexpr (std::is_pointer_v<KeyType>) {
-                this->setCurrentKey(nullptr);
-            }
+   
+    std::vector<int> leftKeyTypes;
+    std::vector<int> rightKeyTypes;
+    for (auto kIndex: this->leftKeyIndex) {
+        leftKeyTypes.push_back(this->leftTypes[kIndex]);
     }
+    for (auto kIndex : this->rightKeyIndex) {
+        rightKeyTypes.push_back(this->rightTypes[kIndex]);
+    }
+    // make sure the key types are the same
+    if (leftKeyTypes != rightKeyTypes) {
+        throw std::runtime_error("Left key types do not match right key types");
+    }   
+    this->keySelectorLeft = new KeySelector<KeyType>(leftKeyTypes, this->leftKeyIndex);
+    this->keySelectorRight = new KeySelector<KeyType>(rightKeyTypes, this->rightKeyIndex);
+           
+    
     generatedFilter = generateJoinCondition();
     getAllColRefs(description["nonEquiCondition"]);
 
@@ -276,6 +265,9 @@ void WindowJoinOperator<KeyType>::processBatch2(StreamRecord* element)
 template <typename KeyType>
 inline void WindowJoinOperator<KeyType>::initializeState(StreamTaskStateInitializerImpl *initializer, TypeSerializer *keySerializer)
 {
+    // First do the shared initialization step
+    INFO_RELEASE("WindowJoinOperator initializeState with initializer, operatorID: " << TwoInputStreamOperator::GetOperatorID().toString());
+    AbstractStreamOperator<KeyType>::SetOperatorID(TwoInputStreamOperator::GetOperatorID().toString());
     AbstractStreamOperator<KeyType>::initializeState(initializer, keySerializer);
 }
 
@@ -284,9 +276,9 @@ template <typename KeyType>
 void WindowJoinOperator<KeyType>::onEventTime(TimerHeapInternalTimer<KeyType, int64_t> *timer)
 {
     int64_t window = timer->getNamespace();
-    if (hasKey) {
-        this->setCurrentKey(timer->getKey());
-    }
+    
+    this->setCurrentKey(timer->getKey());
+    
     std::vector<VectorBatchId> *leftRecords = leftWindowState->get(window);
     std::vector<VectorBatchId> *rightRecords = rightWindowState->get(window);
     if (leftRecords != nullptr) {
@@ -307,8 +299,26 @@ void WindowJoinOperator<KeyType>::onEventTime(TimerHeapInternalTimer<KeyType, in
         rightWindowState->clear(window);
     }
 
-    leftWindowState->clearVectors(window);
-    rightWindowState->clearVectors(window);
+    std::vector<size_t> leftIndicesToDelete;
+    std::vector<size_t> rightIndicesToDelete;
+    for (size_t i = 0; i < leftMaxTimestamps.size(); ++i) {
+        if (window > leftMaxTimestamps[i] && leftMaxTimestamps[i]!= INT64_MIN ) {
+            leftIndicesToDelete.push_back(i);
+            leftMaxTimestamps[i] = INT64_MAX; 
+        }
+    }
+    if (!leftIndicesToDelete.empty()) {
+        leftWindowState->clearVectors(leftIndicesToDelete);
+    }
+    for (size_t i = 0; i < rightMaxTimestamps.size(); ++i) {
+        if (window > rightMaxTimestamps[i] && rightMaxTimestamps[i]!= INT64_MIN) {
+            rightIndicesToDelete.push_back(i);
+            rightMaxTimestamps[i] = INT64_MAX; 
+        }
+    }
+    if (!rightIndicesToDelete.empty()) {
+        rightWindowState->clearVectors(rightIndicesToDelete);
+    }
 }
 
 template <typename KeyType>
@@ -516,19 +526,21 @@ template <typename KeyType>
 void WindowJoinOperator<KeyType>::processBatch(omnistream::VectorBatch *batch, int windowEndIndex,
     WindowListState<KeyType, int64_t, VectorBatchId> *recordState, bool isLeftSide)
 {
-    batch->setMaxTimestamp(isLeftSide ? leftWindowEndIndex : rightWindowEndIndex);
+    auto maxTimeStamp = batch->setMaxTimestamp(isLeftSide ? leftWindowEndIndex : rightWindowEndIndex);
+    if(isLeftSide){
+        leftMaxTimestamps.push_back(maxTimeStamp);
+    }else{
+        rightMaxTimestamps.push_back(maxTimeStamp);
+    }
     int batchID = recordState->getCurrentBatchId();
     recordState->addVectorBatch(batch);
     KeySelector<KeyType>* keySelector = nullptr;
-    if (hasKey) {
-       keySelector = isLeftSide ? this->keySelectorLeft : this->keySelectorRight;
-    }
-
+    keySelector = isLeftSide ? this->keySelectorLeft : this->keySelectorRight;
+    
     for (int i = 0; i < batch->GetRowCount(); i++) {
-        if (hasKey) {
-            auto key = keySelector->getKey(batch, i);
-            this->setCurrentKey(key);
-        }
+        auto key = keySelector->getKey(batch, i);
+        this->setCurrentKey(key);
+       
         int64_t windowEndTime =
             reinterpret_cast<omniruntime::vec::Vector<int64_t> *>(batch->Get(windowEndIndex))->GetValue(i);
         recordState->add(windowEndTime, VectorBatchUtil::getComboId(batchID, i));
@@ -795,5 +807,4 @@ bool WindowJoinOperator<KeyType>::filter(VectorBatchId leftElement, VectorBatchI
         return true;
     }
 }
-#endif
 

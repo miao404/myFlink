@@ -12,6 +12,8 @@
 #define OMNISTREAM_STATESNAPSHOTCONTEXTSYNCHRONOUSIMPL
 
 #include <future>
+#include <memory>
+#include <utility>
 
 #include "KeyGroupRange.h"
 #include "CheckpointStreamFactory.h"
@@ -19,6 +21,8 @@
 #include "KeyedStateHandle.h"
 #include "OperatorStateHandle.h"
 #include "KeyedStateCheckpointOutputStream.h"
+#include "runtime/checkpoint/CheckpointOptions.h"
+#include "runtime/state/bridge/OmniTaskBridge.h"
 
 class StateSnapshotContextSynchronousImpl {
 public:
@@ -27,24 +31,36 @@ public:
         long checkpointTimestamp,
         CheckpointStreamFactory *streamFactory,
         KeyGroupRange *keyGroupRange);
+
+    StateSnapshotContextSynchronousImpl(
+        long checkpointId,
+        long checkpointTimestamp,
+        CheckpointStreamFactory *streamFactory,
+        KeyGroupRange *keyGroupRange,
+        std::shared_ptr<omnistream::OmniTaskBridge> bridge,
+        CheckpointOptions *checkpointOptions);
+
     KeyedStateCheckpointOutputStream *getRawKeyedOperatorStateOutput();
 
     long getCheckpointId();
     long getCheckpointTimestamp();
 
     std::shared_ptr<std::packaged_task<std::shared_ptr<SnapshotResult<KeyedStateHandle>>()>> getKeyedStateStreamFuture();
-    std::shared_ptr<std::packaged_task<SnapshotResult<OperatorStateHandle>>> getOperatorStateStreamFuture();
+    std::shared_ptr<std::packaged_task<std::shared_ptr<SnapshotResult<OperatorStateHandle>>()>> getOperatorStateStreamFuture();
     void closeExceptionally();
 
 protected:
     std::shared_ptr<std::packaged_task<std::shared_ptr<SnapshotResult<KeyedStateHandle>>()>> keyedStateCheckpointClosingFuture;
-    std::shared_ptr<std::packaged_task<SnapshotResult<OperatorStateHandle>>> operatorStateCheckpointClosingFuture;
+    std::shared_ptr<std::packaged_task<std::shared_ptr<SnapshotResult<OperatorStateHandle>>()>> operatorStateCheckpointClosingFuture;
 
 private:
     long checkpointId_;
     long checkpointTimestamp_;
     CheckpointStreamFactory *streamFactory_;
     KeyGroupRange *keyGroupRange_;
+    std::shared_ptr<omnistream::OmniTaskBridge> bridge_;
+    CheckpointOptions *checkpointOptions_ = nullptr;
+    std::shared_ptr<KeyedStateCheckpointOutputStream> keyedStateCheckpointOutputStream_;
 };
 
 #endif // OMNISTREAM_STATESNAPSHOTCONTEXTSYNCHRONOUSIMPL

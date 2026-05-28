@@ -53,6 +53,8 @@ import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointFailureReason;
 import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.JobManagerTaskRestore;
+import org.apache.flink.runtime.checkpoint.OperatorSubtaskState;
+import org.apache.flink.runtime.checkpoint.TaskStateSnapshot;
 import org.apache.flink.runtime.deployment.TaskDeploymentDescriptor;
 import org.apache.flink.runtime.execution.librarycache.LibraryCacheManager;
 import org.apache.flink.runtime.executiongraph.ExecutionAttemptID;
@@ -62,6 +64,7 @@ import org.apache.flink.runtime.externalresource.ExternalResourceInfoProvider;
 import org.apache.flink.runtime.heartbeat.HeartbeatServices;
 import org.apache.flink.runtime.highavailability.HighAvailabilityServices;
 import org.apache.flink.runtime.io.network.partition.TaskExecutorPartitionTracker;
+import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobgraph.tasks.InputSplitProvider;
 import org.apache.flink.runtime.jobgraph.tasks.TaskOperatorEventGateway;
 import org.apache.flink.runtime.jobmaster.JobMasterId;
@@ -163,7 +166,7 @@ public class OmniTaskExecutor extends TaskExecutor {
 
     private static final Logger LOG = LoggerFactory.getLogger(OmniTaskExecutor.class);
 
-    private long nativeTaskExecutorReference;
+    private long nativeTaskExecutorReference = -1;
 
     private OmniShuffleEnvironment omniShuffleEnvironment;
     private OmniTaskManagerServices omniTaskManagerServices;
@@ -187,8 +190,13 @@ public class OmniTaskExecutor extends TaskExecutor {
 
         String taskExecutorConfig = convertTaskExecutorToJson();
         log.info("TaskExecutorConfig: " + taskExecutorConfig);
-        nativeTaskExecutorReference = createNativeTaskExecutor(taskExecutorConfig,
-                omniTaskManagerServices.getNativeOmniTaskManagerServicesAddress());
+        try {
+            nativeTaskExecutorReference = createNativeTaskExecutor(taskExecutorConfig,
+                    omniTaskManagerServices.getNativeOmniTaskManagerServicesAddress());
+        } catch (Throwable t) {
+            LOG.error("Failed to create NativeTaskExecutor.", t);
+        }
+
         log.info("nativeTaskExecutorReference: " + nativeTaskExecutorReference);
     }
 
@@ -389,6 +397,10 @@ public class OmniTaskExecutor extends TaskExecutor {
             LOG.info("TaskDeploymentDescriptorPOJO is {}", tddPojo);
             LOG.info("TaskDeploymentDescriptorPOJO JSON is {}", tddPojoJson);
 
+            if (this.nativeTaskExecutorReference == -1) {
+                throw new TaskSubmissionException("nativeTaskExecutorReference cannot be -1.");
+            }
+
             long nativeTaskAddress = submitTaskNativeWithCheckpointing(this.nativeTaskExecutorReference, jobInformationPOJOJson,
                     taskInformationPOJOJson, tddPojoJson, task.getTaskStateManagerWrapper(), omniTaskWrapper, task.getTaskOperatorGatewayWrapper());
             task.bindNativeTask(nativeTaskAddress);
@@ -403,8 +415,7 @@ public class OmniTaskExecutor extends TaskExecutor {
         JobManagerTaskRestore restore = tdd.getTaskRestore();
         if (restore != null) {
             try {
-                String restoreJson = TaskStateSnapshotDeser.serializeTaskStateSnapshot(
-                    restore.getTaskStateSnapshot());
+                String restoreJson = serializeTaskStateSnapshot(restore.getTaskStateSnapshot());
                 tddPojo.setTaskStateSnapshot(restoreJson);
                 tddPojo.setRestoreCheckpointId(restore.getRestoreCheckpointId());
                 LOG.debug("TaskStateSnapshot JSON is {}", restoreJson);
@@ -419,6 +430,35 @@ public class OmniTaskExecutor extends TaskExecutor {
         }
         return tddPojo;
     }
+
+    private static String serializeTaskStateSnapshot(TaskStateSnapshot taskStateSnapshot) throws IOException {
+ 	         if (containsChannelState(taskStateSnapshot)) {
+ 	             LOG.debug("TaskStateSnapshot contains channel state, using JsonHelper serializer");
+ 	             return JsonHelper.toJsonWithAllFields(taskStateSnapshot);
+ 	         }
+ 	         return TaskStateSnapshotDeser.serializeTaskStateSnapshot(taskStateSnapshot);
+ 	     }
+ 	 
+ 	     private static boolean containsChannelState(TaskStateSnapshot taskStateSnapshot) {
+ 	         if (taskStateSnapshot == null) {
+ 	             return false;
+ 	         }
+ 	         for (Map.Entry<OperatorID, OperatorSubtaskState> entry : taskStateSnapshot.getSubtaskStateMappings()) {
+ 	             OperatorSubtaskState operatorSubtaskState = entry.getValue();
+ 	             if (operatorSubtaskState == null) {
+ 	                 continue;
+ 	             }
+ 	             if (hasStateObjects(operatorSubtaskState.getInputChannelState())
+ 	                 || hasStateObjects(operatorSubtaskState.getResultSubpartitionState())) {
+ 	                 return true;
+ 	             }
+ 	         }
+ 	         return false;
+ 	     }
+ 	 
+ 	     private static boolean hasStateObjects(Iterable<?> stateObjects) {
+ 	         return stateObjects != null && stateObjects.iterator().hasNext();
+ 	     }
 
     private OmniTask getTask(TaskParam taskParam, JobTable.Connection jobManagerConnection,
                              ExecutionAttemptID executionAttemptID,

@@ -8,8 +8,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef FLINK_TNEL_WATERMARKASSIGNEROPERATOR_H
-#define FLINK_TNEL_WATERMARKASSIGNEROPERATOR_H
+
+#pragma once
 
 #include <chrono>
 #include <regex>
@@ -33,8 +33,17 @@ public:
     void processBatch(StreamRecord *element) override;
     void processElement(StreamRecord *element) override;
     void ProcessWatermark(Watermark *mark) override;
-    void initializeState(StreamTaskStateInitializerImpl *initializer, TypeSerializer *keySerializer) override
-    {}
+    void initializeState(StreamTaskStateInitializerImpl *initializer, TypeSerializer *keySerializer) override {
+        INFO_RELEASE("WatermarkAssignerOperator::initializeState not impl");
+    }
+
+    void notifyCheckpointComplete(long checkpointId) override {
+        INFO_RELEASE("WatermarkAssignerOperator::notifyCheckpointComplete not impl checkpointId : " << checkpointId);
+    }
+
+    void notifyCheckpointAborted(long checkpointId) override {
+        INFO_RELEASE("WatermarkAssignerOperator::notifyCheckpointAborted not impl checkpointId : " << checkpointId);
+    }
 
     // Setup and closing operations
     void open() override;
@@ -45,7 +54,6 @@ public:
 
     std::string getTypeName() override;
     void processWatermarkStatus(WatermarkStatus *watermarkStatus) override;
-    omnistream::VectorBatch *sliceVecBatch(omnistream::VectorBatch *batch, int32_t offset, int32_t newRowCnt);
 
 private:
     int rowtimeIndex_;
@@ -67,5 +75,3 @@ private:
     void advanceWatermark();
     void emitWatermarkStatus(WatermarkStatus *watermarkStatus);
 };
-
-#endif  // FLINK_TNEL_WATERMARKASSIGNEROPERATOR_H

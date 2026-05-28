@@ -9,8 +9,7 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#ifndef FLINK_TNEL_COMMON_H
-#define FLINK_TNEL_COMMON_H
+#pragma once
 
 #include <iostream>
 #include <chrono>
@@ -150,6 +149,3 @@ std::cout.flush();  \
                 } while (false);
 
 void GErrorLog(std::string msg);
-
-
-#endif

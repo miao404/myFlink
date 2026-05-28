@@ -9,22 +9,18 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#ifndef OMNISTREAM_ROCKSDBVALUESTATE_H
-#define OMNISTREAM_ROCKSDBVALUESTATE_H
-
-#include "core/typeutils/TypeSerializer.h"
-#include "../internal/InternalKvState.h"
-#include "core/api/common/state/ValueState.h"
-#include "../AbstractKeyedStateBackend.h"
-#include "RocksdbStateTable.h"
-
-#include "rocksdb/db.h"
-#include "state/RocksDbKvStateInfo.h"
+#pragma once
 
 #include <unordered_map>
+
+#include "core/typeutils/TypeSerializer.h"
+#include "../AbstractKeyedStateBackend.h"
+#include "RocksdbStateTable.h"
+#include "state/RocksDbKvStateInfo.h"
 #include "runtime/state/rocksdb/falcon/ValueStateFalconKey.h"
 #include "runtime/state/rocksdb/falcon/FalconValue.h"
 #include "runtime/state/rocksdb/falcon/ValueStateCache.h"
+#include "runtime/state/internal/InternalValueState.h"
 
 const float CACHE_SIZE_UPPER_LIMIT = 1.2;
 
@@ -32,7 +28,7 @@ template <typename K, typename N, typename V>
 class ValueStateLRUCache;
 
 template <typename K, typename N, typename V>
-class RocksdbValueState : public ValueState<V>, public InternalKvState<K, N, V> {
+class RocksdbValueState : public InternalValueState<K, N, V> {
 public:
     TypeSerializer *getKeySerializer()
     {
@@ -86,13 +82,14 @@ public:
     void createTable(ROCKSDB_NAMESPACE::DB* db, std::string cfName,
                     std::unordered_map<std::string, std::shared_ptr<RocksDbKvStateInfo>> *kvStateInformation);
 
-    void clearVectors(int64_t currentTimestamp) {}
+   
     void clear() override;
     void addVectorBatch(omnistream::VectorBatch *vectorBatch) override;
     omnistream::VectorBatch *getVectorBatch(int batchId) override;
     long getVectorBatchesSize() override;
     void updateByBatch(std::unordered_map<K, V>& pendingUpdates);
-
+    void clearVectors(int64_t currentTimestamp) override;
+    void clearVectors(std::vector<size_t>& indicesToDelete) override;
     // [FALCON] -------------------------------------------------------------------------------------------
     // function to get defaultValue, get currentNamespace and set currentKey & namespace
     V getDefaultValue() { return defaultValue; };
@@ -154,11 +151,6 @@ public:
 
     V get(const K& key, const N& ns) override
     {
-        // case1: sql case
-        if constexpr (!(std::is_same_v<K, Object*> && std::is_same_v<N, VoidNamespace> && std::is_same_v<V, Object*>)) {
-            return valueState->getValue();
-        }
-        // case2: dataStream case
         // use new operator to create falconKey and falconValue, so that their life circle are bind with falcon cache.
         // when remove elements from cache, e.g., using erase() or clear(), make sure delete operation is called.
         auto falconKey = new KeyType(key, ns);
@@ -177,29 +169,34 @@ public:
         } else { // falcon cache miss, get from rocksdb and insert into falcon cache
             V value = valueState->getValue();
             V defaultValue = valueState->getDefaultValue();
-            if constexpr (std::is_same_v<V, Object*>) { // DataStream case
+            // V type can be Object*, RowData*, std::vector<long>* or int type
+            if constexpr (std::is_pointer_v<V>) {
+                // nullptr should not be inserted into cache, directly return
                 if (value == nullptr) {
                     delete falconKey;
                     return value;
                 }
+                // if value and default value are not nullptr, compare them and decide whether to insert into cache
                 if (value != nullptr && defaultValue != nullptr) {
-                    if (reinterpret_cast<Object*>(value)->equals(defaultValue)) {
-                        delete falconKey;
-                        return value;
+                    if constexpr (std::is_same_v<V, Object*>) {
+                        if (reinterpret_cast<Object*>(value)->equals(defaultValue)) {
+                            delete falconKey;
+                            return value;
+                        }
+                    } else if constexpr (std::is_same_v<V, std::vector<long>*>) {
+                        if (*value == *defaultValue) {  // dereference value and default value and compare
+                            delete falconKey;
+                            return value;
+                        }
+                    } else {
+                        // RowData* and int type, use == to compare. todo: GenericRowData == method is not implemented
+                        if (value == defaultValue) {
+                            delete falconKey;
+                            return value;
+                        }
                     }
                 }
-            } else if constexpr (std::is_same_v<V, BinaryRowData*>) { // SQL case1
-                if (value == nullptr) {
-                    delete falconKey;
-                    return value;
-                }
-                if (value != nullptr && defaultValue != nullptr) {
-                    if (reinterpret_cast<BinaryRowData*>(value) == defaultValue) {
-                        delete falconKey;
-                        return value;
-                    }
-                }
-            } else { // SQL case2(int16_t) and other cases
+            } else { // int type
                 if (value == defaultValue) {
                     delete falconKey;
                     return value;
@@ -216,12 +213,6 @@ public:
 
     void put(const K& key, const N& ns, const V& value) override
     {
-        // case1: sql case
-        if constexpr (!(std::is_same_v<K, Object*> && std::is_same_v<N, VoidNamespace> && std::is_same_v<V, Object*>)) {
-            valueState->writeValue(value);
-            return;
-        }
-        // case2: dataStream case
         auto falconKey = new KeyType(key, ns);
         auto falconValue = new ValType(value, false);
         auto it = cache.find(falconKey);
@@ -243,12 +234,6 @@ public:
 
     void remove(const K& key, const N& ns) override
     {
-        // case1: sql case
-        if constexpr (!(std::is_same_v<K, Object*> && std::is_same_v<N, VoidNamespace> && std::is_same_v<V, Object*>)) {
-            valueState->deleteValue();
-            return;
-        }
-        // case2: dataStream case
         auto falconKey = new KeyType(key, ns);
         auto it = cache.find(falconKey);
         if (it != cache.end()) {
@@ -328,7 +313,6 @@ public:
     }
 
 private:
-    // todo: try to use jol-core to calculate the actual size of cache, e.g., GraphLayout
     int cacheSizeLimit{}; // stateCache size limit, 0 means disable falcon cache, otherwise enable falcon cache
     RocksdbValueState<K, N, V>* valueState = {};
     std::unordered_map<KeyType*, ValType*> cache = {};
@@ -479,5 +463,12 @@ void RocksdbValueState<K, N, V>::updateByBatch(std::unordered_map<K, V>& pending
     stateTable->putByBatch(currentNamespace,pendingUpdates);
 }
 
+template <typename K, typename N, typename V>
+void  RocksdbValueState<K, N, V>::clearVectors(int64_t currentTimestamp){
+    return stateTable->clearVectors(currentTimestamp);
+}
 
-#endif // OMNISTREAM_ROCKSDBVALUESTATE_H
+template <typename K, typename N, typename V>
+void  RocksdbValueState<K, N, V>::clearVectors(std::vector<size_t>& indicesToDelete){
+    return stateTable->clearVectors(indicesToDelete);
+}

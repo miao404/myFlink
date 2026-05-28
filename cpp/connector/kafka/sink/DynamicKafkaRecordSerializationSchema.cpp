@@ -10,12 +10,27 @@
  */
 
 #include "DynamicKafkaRecordSerializationSchema.h"
+#include "data/vectorbatch/VectorBatch.h"
 #include <algorithm>
 
 DynamicKafkaRecordSerializationSchema::
 DynamicKafkaRecordSerializationSchema(std::vector<std::string>& inputFields,
                                       std::vector<std::string>& inputTypes): inputFields_(inputFields),
-    inputTypes_(inputTypes) {}
+    inputTypes_(inputTypes)
+{
+    std::regex pattern(R"(DECIMAL\d+\((\d+),\s*(\d+)\))");
+    std::smatch match;
+
+    for (const std::string &inputType: inputTypes) {
+        if (std::regex_search(inputType, match, pattern)) {
+            int precision = std::stoi(match[1].str());
+            int scale = std::stoi(match[2].str());
+            decimalInfo.emplace_back(precision, scale);
+        } else {
+            decimalInfo.emplace_back(-1, -1);
+        }
+    }
+}
 
 void DynamicKafkaRecordSerializationSchema::RowToJson(RowData* row)
 {
@@ -52,16 +67,28 @@ void DynamicKafkaRecordSerializationSchema::RowToJson(RowData* row)
                                                stringRowData->toString()->end());
             j[inputFields_[i]] = strValue;
         } else {
-            LOG("Data type not supported: " << inputTypes_[i])
-            throw std::runtime_error("Data type not supported");
+            LOG("RowToJson(RowData) Data type not supported: " << inputTypes_[i])
+            throw std::runtime_error("RowToJson(RowData) Data type not supported");
         };
     }
+}
+
+void DynamicKafkaRecordSerializationSchema::RowToJson(omnistream::VectorBatch *input, int rowIndex) {
+    input->convertToJson(j, rowIndex, decimalInfo, inputTypes_, inputFields_);
 }
 
 KeyValueByteContainer DynamicKafkaRecordSerializationSchema::Serialize(RowData *consumedRow)
 {
     j.clear();
     RowToJson(consumedRow);
+    std::string jsonStr = j.dump();
+    return {nullptr, jsonStr.data()};
+}
+
+KeyValueByteContainer DynamicKafkaRecordSerializationSchema::Serialize(omnistream::VectorBatch *input, int rowIndex)
+{
+    j.clear();
+    RowToJson(input, rowIndex);
     std::string jsonStr = j.dump();
     return {nullptr, jsonStr.data()};
 }
