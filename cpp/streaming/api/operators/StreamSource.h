@@ -74,9 +74,14 @@ public:
     void run()
     {
         thread_local Object lockingObject;
+        run(&lockingObject);
+    }
+
+    void run(Object* checkpointLock)
+    {
         ctx = StreamSourceContexts::getSourceContext(TimeCharacteristic::ProcessingTime,
                                                      new SystemProcessingTimeService(),
-                                                     &lockingObject,
+                                                     checkpointLock,
                                                      this->output,
                                                      -1,
                                                      -1,
