@@ -59,12 +59,23 @@ namespace omnistream {
         explicit SynchronizedStreamTaskActionExecutor(std::shared_ptr<std::mutex> mutex) : mutex_(mutex)
         {
         };
+
+        explicit SynchronizedStreamTaskActionExecutor(std::recursive_mutex* recursiveMutex)
+            : recursiveMutex_(recursiveMutex)
+        {
+        };
+
         ~SynchronizedStreamTaskActionExecutor() override = default;
 
         void run(ThrowingRunnable* runnable) override
         {
-            std::lock_guard<std::mutex> lock(*mutex_);
-            runnable->Run();
+            if (recursiveMutex_) {
+                std::lock_guard<std::recursive_mutex> guard(*recursiveMutex_);
+                runnable->Run();
+            } else {
+                std::lock_guard<std::mutex> lock(*mutex_);
+                runnable->Run();
+            }
         }
 
         std::shared_ptr<std::mutex> getMutex()
@@ -81,6 +92,7 @@ namespace omnistream {
 
     private:
         std::shared_ptr<std::mutex> mutex_;
+        std::recursive_mutex* recursiveMutex_ = nullptr;
     };
 
     inline std::shared_ptr<SynchronizedStreamTaskActionExecutor> synchronizedExecutor()
@@ -91,6 +103,11 @@ namespace omnistream {
     inline std::shared_ptr<SynchronizedStreamTaskActionExecutor> synchronizedExecutor(std::shared_ptr<std::mutex> mutex)
     {
         return std::make_shared<SynchronizedStreamTaskActionExecutor>(mutex);
+    }
+
+    inline std::shared_ptr<SynchronizedStreamTaskActionExecutor> synchronizedExecutor(std::recursive_mutex* recursiveMutex)
+    {
+        return std::make_shared<SynchronizedStreamTaskActionExecutor>(recursiveMutex);
     }
 } // namespace omnistream
 
