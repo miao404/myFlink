@@ -1,86 +1,178 @@
 #include "fuzz_wrapper.h"
+#include "streaming/api/operators/StreamMap.h"
 #include "streaming/runtime/streamrecord/StreamRecord.h"
 #include "test/core/operators/OutputTest.h"
-#include "table/data/RowKind.h"
+#include "test/core/operators/test_utils/Mocks.h"
+#include "test/core/operators/test_udf/MockMapFunction.h"
+#include "streaming/api/watermark/Watermark.h"
+#include "runtime/watermark/WatermarkStatus.h"
 #include <nlohmann/json.hpp>
 #include <iostream>
 
-using namespace omnistream;
 using json = nlohmann::json;
 
-omnistream::VectorBatch* createMapTestVectorBatch(int rowCount, int64_t value1, int64_t value2)
-{
-    omnistream::VectorBatch* vb = new omnistream::VectorBatch(rowCount);
-    auto col0 = new omniruntime::vec::Vector<int64_t>(rowCount);
-    auto col1 = new omniruntime::vec::Vector<int64_t>(rowCount);
+// Testable subclass: exposes userFunction setter for processElement testing
+// without requiring external .so loading
+template<typename F, typename K>
+class TestableStreamMap : public omnistream::datastream::StreamMap<F, K> {
+public:
+    TestableStreamMap(Output *output, MapFunction<F>* func, bool isStream = true)
+        : omnistream::datastream::StreamMap<F, K>(output, isStream)
+    {
+        this->userFunction = func;
+    }
+};
 
-    for (int i = 0; i < rowCount; i++) {
-        col0->SetValue(i, value1 + i);
-        col1->SetValue(i, value2 + i);
-        vb->setRowKind(i, RowKind::INSERT);
+// --- Test 1: Constructor + getName ---
+// Covers: StreamMapTest::Constructor_ValidPath, StreamMapTest::GetName
+void TestMapConstructor(const MapFuzzData& fzd)
+{
+    std::cout << "TestMapConstructor" << std::endl;
+
+    MockOutput output;
+    omnistream::datastream::StreamMap<Object, Object*> streamMap(&output, true);
+
+    std::cout << "  output set: " << (streamMap.GetOutput() == &output) << std::endl;
+    std::cout << "  getName: " << streamMap.getName() << std::endl;
+}
+
+// --- Test 2: processElement ---
+// Covers: StreamMapTest::ProcessElement_Valid (commented out in UT)
+// Exercises: userFunction->map(), output->collect(), input->putRefCount()
+void TestMapProcessElement(const MapFuzzData& fzd)
+{
+    std::cout << "TestMapProcessElement" << std::endl;
+
+    MockOutput *output = new MockOutput();
+    MockMapFunction *mapFunc = new MockMapFunction();
+    TestableStreamMap<Object, Object*> streamMap(output, mapFunc, true);
+
+    // Single element
+    MockObject *input = new MockObject(static_cast<int>(fzd.value1));
+    StreamRecord *record = new StreamRecord(input);
+    streamMap.processElement(record);
+
+    std::vector<StreamRecord*> collected = output->getCollectedRecords();
+    std::cout << "  collected: " << collected.size() << std::endl;
+    if (!collected.empty()) {
+        MockObject *result = dynamic_cast<MockObject*>(collected[0]->getValue());
+        if (result) {
+            std::cout << "  result value: " << result->getValue()
+                      << " (expected " << (static_cast<int>(fzd.value1) + 1) << ")" << std::endl;
+        }
     }
 
-    vb->Append(col0);
-    vb->Append(col1);
-
-    return vb;
-}
-
-static const std::string MAP_DESC = R"JSON({"name":"StreamMap","description":{"inputTypes":["BIGINT","BIGINT"],"outputTypes":["BIGINT","BIGINT"],"udfClassName":"TestMapFunction"},"id":"StreamMap"})JSON";
-
-void TestMapBasic(const MapFuzzData& fzd)
-{
-    std::cout << "TestMapBasic" << std::endl;
-
-    json parsedJson = json::parse(MAP_DESC);
-    std::cout << "Map config parsed: " << parsedJson["name"] << std::endl;
-
-    omnistream::VectorBatch* vb = createMapTestVectorBatch(fzd.loopCount, fzd.value1, fzd.value2);
-    std::cout << "Map VectorBatch created with " << fzd.loopCount << " rows" << std::endl;
-
-    delete vb;
-}
-
-void TestMapConfigValidation(const MapFuzzData& fzd)
-{
-    std::cout << "TestMapConfigValidation" << std::endl;
-
-    json parsedJson = json::parse(MAP_DESC);
-
-    bool hasInputTypes = parsedJson["description"].contains("inputTypes");
-    bool hasOutputTypes = parsedJson["description"].contains("outputTypes");
-    std::cout << "Map config validation: inputTypes=" << hasInputTypes
-              << ", outputTypes=" << hasOutputTypes << std::endl;
-
-    omnistream::VectorBatch* vb = createMapTestVectorBatch(fzd.loopCount, fzd.value1, fzd.value2);
-    delete vb;
-}
-
-void TestMapMultiBatch(const MapFuzzData& fzd)
-{
-    std::cout << "TestMapMultiBatch" << std::endl;
-
-    for (int batch = 0; batch < 3; batch++) {
-        omnistream::VectorBatch* vb = createMapTestVectorBatch(fzd.loopCount, fzd.value1 + batch * 100, fzd.value2);
-        std::cout << "Map batch " << batch << " created" << std::endl;
-        delete vb;
+    // Multiple elements driven by loopCount
+    int count = (fzd.loopCount > 0 && fzd.loopCount < 100) ? fzd.loopCount : 5;
+    for (int i = 1; i < count; i++) {
+        MockObject *obj = new MockObject(static_cast<int>(fzd.value2 + i));
+        StreamRecord *rec = new StreamRecord(obj);
+        streamMap.processElement(rec);
     }
+    std::cout << "  total collected: " << output->getCollectedRecords().size() << std::endl;
+
+    delete output;
+}
+
+// --- Test 3: loadUdf error path ---
+// Covers: StreamMapTest::Constructor_InvalidPath
+void TestMapLoadUdfInvalid(const MapFuzzData& fzd)
+{
+    std::cout << "TestMapLoadUdfInvalid" << std::endl;
+
+    MockOutput output;
+    omnistream::datastream::StreamMap<Object, Object*> streamMap(&output);
+
+    nlohmann::json config;
+    config["udf_so"] = "nonexistent_path.so";
+    config["udf_obj"] = "{}";
+
+    bool threw = false;
+    try {
+        streamMap.loadUdf(config);
+    } catch (const std::out_of_range&) {
+        threw = true;
+    }
+    std::cout << "  loadUdf(invalid) threw out_of_range: " << threw << std::endl;
+}
+
+// --- Test 4: open / close lifecycle ---
+// Covers: StreamMapTest::Open_NotImplemented, StreamMapTest::Close_NotImplemented
+void TestMapOpenClose(const MapFuzzData& fzd)
+{
+    std::cout << "TestMapOpenClose" << std::endl;
+
+    MockOutput output;
+    omnistream::datastream::StreamMap<Object, Object*> streamMap(&output, true);
+
+    streamMap.open();
+    std::cout << "  open() ok" << std::endl;
+
+    streamMap.close();
+    std::cout << "  close() ok" << std::endl;
+}
+
+// --- Test 5: canBeStreamOperator ---
+// Not covered in StreamMapTest UT, exercises isStream flag
+void TestMapCanBeStreamOperator(const MapFuzzData& fzd)
+{
+    std::cout << "TestMapCanBeStreamOperator" << std::endl;
+
+    MockOutput output;
+
+    omnistream::datastream::StreamMap<Object, Object*> asStream(&output, true);
+    std::cout << "  isStream=true  -> " << asStream.canBeStreamOperator() << std::endl;
+
+    omnistream::datastream::StreamMap<Object, Object*> notStream(&output, false);
+    std::cout << "  isStream=false -> " << notStream.canBeStreamOperator() << std::endl;
+}
+
+// --- Test 6: ProcessWatermark + processWatermarkStatus ---
+// Not covered in StreamMapTest UT, exercises watermark forwarding path
+void TestMapWatermarkHandling(const MapFuzzData& fzd)
+{
+    std::cout << "TestMapWatermarkHandling" << std::endl;
+
+    MockOutput *output = new MockOutput();
+    omnistream::datastream::StreamMap<Object, Object*> streamMap(output, true);
+    streamMap.setup();
+
+    Watermark *wm = new Watermark(fzd.value1);
+    streamMap.ProcessWatermark(wm);
+    std::cout << "  ProcessWatermark(" << fzd.value1 << ") ok" << std::endl;
+
+    streamMap.processWatermarkStatus(WatermarkStatus::idle());
+    std::cout << "  processWatermarkStatus(IDLE) ok" << std::endl;
+
+    streamMap.processWatermarkStatus(WatermarkStatus::active());
+    std::cout << "  processWatermarkStatus(ACTIVE) ok" << std::endl;
+
+    delete output;
 }
 
 int GlobalMapFuzz(struct MapFuzzData fzd, std::string filterExpr, int32_t chooseFunc)
 {
     std::cout << "MapFuzz: chooseFunc=" << chooseFunc
+              << ", value1=" << fzd.value1
+              << ", value2=" << fzd.value2
               << ", loopCount=" << fzd.loopCount << std::endl;
 
     switch (chooseFunc) {
-        case 1: TestMapBasic(fzd); break;
-        case 2: TestMapConfigValidation(fzd); break;
-        case 3: TestMapMultiBatch(fzd); break;
+        case 1: TestMapConstructor(fzd); break;
+        case 2: TestMapProcessElement(fzd); break;
+        case 3: TestMapLoadUdfInvalid(fzd); break;
+        case 4: TestMapOpenClose(fzd); break;
+        case 5: TestMapCanBeStreamOperator(fzd); break;
+        case 6: TestMapWatermarkHandling(fzd); break;
         default:
-            TestMapBasic(fzd);
-            TestMapConfigValidation(fzd);
-            TestMapMultiBatch(fzd);
+            TestMapConstructor(fzd);
+            TestMapProcessElement(fzd);
+            TestMapLoadUdfInvalid(fzd);
+            TestMapOpenClose(fzd);
+            TestMapCanBeStreamOperator(fzd);
+            TestMapWatermarkHandling(fzd);
             break;
     }
+
     return 0;
 }
