@@ -77,6 +77,8 @@ struct WindowFuzzData {
     int64_t bidderValue;
     int64_t timestampValue;
     int64_t windowSize;
+    int64_t timestamp2;
+    int64_t stateValue;
     int32_t loopCount;
     int32_t rowKind;
     std::string filterExpr;
