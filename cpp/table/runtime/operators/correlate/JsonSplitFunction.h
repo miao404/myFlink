@@ -12,7 +12,9 @@
 #ifndef FLINK_TNEL_JSONSPLITFUNCTION_H
 #define FLINK_TNEL_JSONSPLITFUNCTION_H
 
-#include <nlohmann/json.hpp>
+#include <rapidjson/document.h>
+#include <rapidjson/stringbuffer.h>
+#include <rapidjson/writer.h>
 #include "NativeTableFunction.h"
 
 class JsonSplitFunction : public NativeTableFunction {
@@ -20,19 +22,22 @@ public:
     std::vector<std::string> eval(const std::string& input) override
     {
         std::vector<std::string> results;
-        try {
-            nlohmann::json jsonArray = nlohmann::json::parse(input);
-            if (jsonArray.is_array()) {
-                for (const auto& element : jsonArray) {
-                    if (element.is_string()) {
-                        results.push_back(element.get<std::string>());
-                    } else {
-                        results.push_back(element.dump());
-                    }
-                }
+        rapidjson::Document doc;
+        doc.Parse(input.c_str());
+        if (doc.HasParseError() || !doc.IsArray()) {
+            return results;
+        }
+        results.reserve(doc.Size());
+        for (rapidjson::SizeType i = 0; i < doc.Size(); ++i) {
+            const auto& element = doc[i];
+            if (element.IsString()) {
+                results.emplace_back(element.GetString(), element.GetStringLength());
+            } else {
+                rapidjson::StringBuffer buffer;
+                rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+                element.Accept(writer);
+                results.emplace_back(buffer.GetString(), buffer.GetSize());
             }
-        } catch (const nlohmann::json::parse_error&) {
-            // return empty vector on parse failure
         }
         return results;
     }
