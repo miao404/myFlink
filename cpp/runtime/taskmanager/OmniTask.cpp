@@ -618,8 +618,10 @@ namespace omnistream {
         return this->executionState;
     }
 
-    void OmniTask::triggerCheckpointBarrier(long checkpointid, long checkpointtimestamp, CheckpointOptions *checkpoint_options)
+void OmniTask::triggerCheckpointBarrier(long checkpointid, long checkpointtimestamp, CheckpointOptions *checkpoint_options)
     {
+        INFO_RELEASE("OmniTask::triggerCheckpointBarrier - checkpointId=" << checkpointid
+        << ", timestamp=" << checkpointtimestamp << ", task=" << taskNameWithSubtask_);
         OmniStreamTask *checkpointableTask = this->invokable_.get();
         CheckpointMetaData *checkpointMetaData = new CheckpointMetaData(
         checkpointid,
@@ -632,6 +634,7 @@ namespace omnistream {
                 throw std::runtime_error("invokable is not checkpointable");
             }
             try {
+                INFO_RELEASE("OmniTask::triggerCheckpointBarrier - calling triggerCheckpointAsync, checkpointId=" << checkpointid);
                 checkpointableTask->triggerCheckpointAsync(checkpointMetaData, checkpoint_options);
                 // TTODO
             } catch (const OmniException& ex) {

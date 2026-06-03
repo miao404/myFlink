@@ -12,6 +12,7 @@
 #include "OmniSourceStreamTask.h"
 
 #include "common.h"
+#include "../../../../core/include/common.h"
 
 namespace omnistream {
 
@@ -51,17 +52,47 @@ void OmniSourceStreamTask::init()
 
 void OmniSourceStreamTask::processInput(MailboxDefaultAction::Controller *controller)
 {
+    INFO_RELEASE("OmniSourceStreamTask::processInput - starting source thread, task=" << taskName_);
     LOG("OmniSourceStreamTask::processInput")
-    if (!dynamic_cast<StreamSource<omnistream::VectorBatch> *>(mainOperator_)) {
-        throw std::runtime_error("mainOperator_ is not of type StreamSource<omnistream::VectorBatch>");
-    }
-    
-    dynamic_cast<StreamSource<omnistream::VectorBatch> *>(mainOperator_)->run();
-    // clean up resources or emit final watermark
-    CompleteProcessing();
+    controller->suspendDefaultAction();  // 暂停默认action
 
-    mailboxProcessor_->suspend();
-    LOG_INFO_IMP("Task : " << taskName_ << " suspended");
+    sourceRunning_ = true;
+    sourceThread_ = std::make_unique<std::thread>([this]() {
+        INFO_RELEASE("OmniSourceStreamTask::sourceThread - started, task=" << taskName_);
+        runSourceInThread();
+        INFO_RELEASE("OmniSourceStreamTask::sourceThread - finished, task=" << taskName_);
+    });
+    INFO_RELEASE("OmniSourceStreamTask::processInput - source thread started, returning to mailbox loop");
+}
+
+void OmniSourceStreamTask::runSourceInThread()
+{
+    try {
+        INFO_RELEASE("OmniSourceStreamTask::runSourceInThread - calling StreamSource::run");
+        if (!dynamic_cast<StreamSource<omnistream::VectorBatch> *>(mainOperator_)) {
+            throw std::runtime_error("mainOperator_ is not of type StreamSource<omnistream::VectorBatch>");
+        }
+
+        // 调用带lock参数的run方法
+        dynamic_cast<StreamSource<omnistream::VectorBatch> *>(mainOperator_)->run(lockObject_);
+
+        CompleteProcessing();
+
+        INFO_RELEASE("OmniSourceStreamTask::runSourceInThread - sending completion mail");
+        // 完成后通过mailbox通知主线程
+        auto completionMail = std::make_shared<VoidFunctionRunnable>([this]() {
+            sourceRunning_ = false;
+            mailboxProcessor_->suspend();
+            LOG_INFO_IMP("Task : " << taskName_ << " suspended");
+        });
+        mainMailboxExecutor_->execute(completionMail, "Source completion");
+    } catch (const std::exception& e) {
+        auto errorMail = std::make_shared<VoidFunctionRunnable>([this, e]() {
+            sourceRunning_ = false;
+            mailboxProcessor_->reportThrowable(std::make_exception_ptr(e));
+        });
+        mainMailboxExecutor_->execute(errorMail, "Source error");
+    }
 }
 
 void OmniSourceStreamTask::CompleteProcessing()
@@ -86,8 +117,38 @@ const std::string OmniSourceStreamTask::getName() const
 
 void OmniSourceStreamTask::cancel()
 {
+    INFO_RELEASE("OmniSourceStreamTask::cancel() called")
+    sourceRunning_ = false;
+    if (mainOperator_) {
+        auto source = dynamic_cast<StreamSource<omnistream::VectorBatch> *>(mainOperator_);
+        if (source) {
+            INFO_RELEASE("OmniSourceStreamTask::cancel() called: source->cancel()")
+            source->cancel();
+        }
+    }
+
+    if (sourceThread_ && sourceThread_->joinable()) {
+        INFO_RELEASE("OmniSourceStreamTask::cancel() called: sourceThread_->join()")
+        sourceThread_->join();
+    }
     OmniStreamTask::cancel();
     // avoid back pressure
     recordWriter_->cancel();
 }
+
+OmniSourceStreamTask::~OmniSourceStreamTask()
+{
+    INFO_RELEASE("~OmniSourceStreamTask called")
+    if (sourceThread_ && sourceThread_->joinable()) {
+        INFO_RELEASE("~OmniSourceStreamTask called sourceThread_->join()")
+        sourceThread_->join();
+        INFO_RELEASE("~OmniSourceStreamTask called sourceThread_->join() finish")
+    }
+    if (lockObject_) {
+        INFO_RELEASE("~OmniSourceStreamTask called delete lockObject_")
+        delete lockObject_;
+        INFO_RELEASE("~OmniSourceStreamTask called delete lockObject_ finish")
+    }
+}
+
 }

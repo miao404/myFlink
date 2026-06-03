@@ -109,6 +109,7 @@ void MailboxProcessor::runMailboxLoop()
     }
     LOG(">>>before isNextLoopPossible")
     MailboxController *mailboxController = new MailboxController(this);
+    INFO_RELEASE("MailboxProcessor::runMailboxLoop - starting");
     while (isNextLoopPossible()) {
         // LOG(">>>before procsiyessMail")
         // workaround
@@ -123,6 +124,7 @@ void MailboxProcessor::runMailboxLoop()
             mailboxDefaultAction->runDefaultAction(mailboxController);
         }
     }
+    INFO_RELEASE("MailboxProcessor::runMailboxLoop - exiting");
     delete mailboxController;
     INFO_RELEASE(">>>after isNextLoopPossible")
 }

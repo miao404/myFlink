@@ -110,6 +110,12 @@ namespace omnistream {
         checkPutStateConditions();
         queue.push_back(mail);
         hasNewMail.store(true);
+        std::string desc = mail->toString();
+        if (desc.find("checkpoint") != std::string::npos ||
+            desc.find("Checkpoint") != std::string::npos) {
+            INFO_RELEASE("TaskMailboxImpl::put - checkpoint mail added, queue size=" << queue.size()
+                                                                                     << ", description=" << desc);
+            }
         notEmpty.notify_one();
     }
 

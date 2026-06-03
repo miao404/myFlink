@@ -38,14 +38,16 @@ namespace omnistream {
     class OmniSourceStreamTask : public OmniStreamTask {
     public:
         explicit OmniSourceStreamTask(std::shared_ptr<RuntimeEnvironmentV2> &env, int taskType)
-            : OmniStreamTask(env, taskType) {
+                : OmniStreamTask(env, taskType),  // 使用默认构造函数（IMMEDIATE executor）
+                  lockObject_(new Object()),
+                  sourceRunning_(false) {
         }
 
         void init() override;
 
         void processInput(MailboxDefaultAction::Controller *controller) override;
 
-        ~OmniSourceStreamTask() override = default;
+        ~OmniSourceStreamTask() override;
         const std::string getName() const override;
         void AdvanceToEndOfEventTime() override;
         void cancel() override;
@@ -53,6 +55,12 @@ namespace omnistream {
     private:
         FinishingReason finishingReason = FinishingReason::END_OF_DATA;
         void CompleteProcessing();
+        void runSourceInThread();
+
+        // 新增成员
+        Object* lockObject_;  // checkpoint lock对象
+        std::unique_ptr<std::thread> sourceThread_;
+        std::atomic<bool> sourceRunning_{false};
     };
 }
 

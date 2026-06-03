@@ -160,7 +160,7 @@ BufferAndBacklog* PipelinedSubpartition::pollBuffer()
     }
 
     if (buffer->GetDataType().isBlockingUpstream()) {
-        LOG("PipelinedSubpartition is blocked when pollBuffer, event data type: " << buffer->GetDataType().toString() <<
+        INFO_RELEASE("PipelinedSubpartition is blocked when pollBuffer, event data type: " << buffer->GetDataType().toString() <<
             ", subpartitionInfo: " << this->subpartitionInfo.toString())
         isBlocked = true;
     }
@@ -180,6 +180,7 @@ BufferAndBacklog* PipelinedSubpartition::pollBuffer()
 
 void PipelinedSubpartition::resumeConsumption()
 {
+    INFO_RELEASE("PipelinedSubpartition isBlocked = false")
     std::lock_guard<std::recursive_mutex> lock(buffersMutex);
     isBlocked = false;
 }

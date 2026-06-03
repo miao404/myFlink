@@ -46,12 +46,20 @@ namespace omnistream {
 
         void execute(std::shared_ptr<ThrowingRunnable> command, const std::string &description) override
         {
-                auto mail = new Mail(std::move(command),
+            if (description.find("checkpoint") != std::string::npos ||
+                description.find("Checkpoint") != std::string::npos) {
+                INFO_RELEASE("MailboxExecutorImpl::execute - description=" << description);
+                }
+            auto mail = new Mail(std::move(command),
                     priority,
                     actionExecutor,
                     description,
                     std::vector<std::string>());
-                mailbox->put(mail);
+            mailbox->put(mail);
+            if (description.find("checkpoint") != std::string::npos ||
+                description.find("Checkpoint") != std::string::npos) {
+                INFO_RELEASE("MailboxExecutorImpl::execute - mail put successfully, description=" << description);
+                }
         }
 
         void execute(std::shared_ptr<ThrowingRunnable> command, const std::string &descriptionFormat,
