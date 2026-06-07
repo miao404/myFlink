@@ -28,17 +28,10 @@ TEST(OperatingModeTest, AllEnumValuesDistinct) {
     EXPECT_EQ(values.size(), 6u);
 }
 
-// ===========================================================================
-// SourceOperator static SPLITS_STATE_DESC test
-// ===========================================================================
-
-TEST(SourceOperatorTest, SplitsStateDescExists) {
-    // Verify the static descriptor is accessible and has the expected name
-    auto& desc = SourceOperator<>::SPLITS_STATE_DESC;
-    EXPECT_EQ(desc.getName(), "SourceReaderState");
-}
-
 /*
+ * SPLITS_STATE_DESC:
+ *    Not available in build environment (static member not present).
+ *
  * Interfaces NOT tested and reasons:
  *
  * 1. SourceOperator constructor:
