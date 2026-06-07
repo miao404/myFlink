@@ -88,15 +88,15 @@ TEST(SortedKVCacheTest, ClearOldValues) {
     delete v2;
 }
 
-TEST(SortedKVCacheTest, OwnsValuesEviction) {
+TEST(SortedKVCacheTest, EvictionDoesNotFreeByDefault) {
     SortedKVCache<int, int*> cache(1);
-    cache.setOwnsValues(true);
     int* v1 = new int(10);
     int* v2 = new int(20);
     cache.put(1, v1);
-    cache.put(2, v2);  // v1 should be freed by cache
+    cache.put(2, v2);  // v1 evicted but not freed (ownsValues=false by default)
     EXPECT_EQ(cache.get(1), nullptr);
     EXPECT_EQ(cache.get(2), v2);
+    delete v1;
 }
 
 TEST(SortedKVCacheTest, PutUpdateBringsToFront) {
