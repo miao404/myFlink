@@ -171,15 +171,13 @@ TEST(TimeWindowTest, SerializerSerializeDeserialize) {
     DataOutputSerializer outputView(128);
     serializer.serialize(&original, outputView);
 
-    auto* buf = outputView.getCopyOfBuffer();
-    DataInputDeserializer inputView(buf->data(), buf->size());
+    DataInputDeserializer inputView(outputView.getData(), outputView.getPosition());
     auto* deserialized = static_cast<TimeWindow*>(serializer.deserialize(inputView));
 
     ASSERT_NE(deserialized, nullptr);
     EXPECT_EQ(deserialized->getStart(), 12345);
     EXPECT_EQ(deserialized->getEnd(), 67890);
     delete deserialized;
-    delete buf;
 }
 
 TEST(TimeWindowTest, SerializerBackendId) {
