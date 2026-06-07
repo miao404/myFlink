@@ -10,7 +10,7 @@ using ReduceOp = omnistream::datastream::StreamGroupedReduceOperator<Object>;
 
 // ---------- Test-only constructor ----------
 
-TEST(StreamGroupedReduceOperatorTest, TestOnlyConstructor) {
+TEST(StreamGroupedReduceOpTest, TestOnlyConstructor) {
     OutputTest out;
     ReduceOp op(&out, true);
     EXPECT_EQ(std::string(op.getName()), "StreamGroupedReduceOperator");
@@ -18,7 +18,7 @@ TEST(StreamGroupedReduceOperatorTest, TestOnlyConstructor) {
 
 // ---------- getName ----------
 
-TEST(StreamGroupedReduceOperatorTest, GetName) {
+TEST(StreamGroupedReduceOpTest, GetName) {
     OutputTest out;
     ReduceOp op(&out, false);
     EXPECT_STREQ(op.getName(), "StreamGroupedReduceOperator");
@@ -26,13 +26,13 @@ TEST(StreamGroupedReduceOperatorTest, GetName) {
 
 // ---------- canBeStreamOperator ----------
 
-TEST(StreamGroupedReduceOperatorTest, CanBeStreamOperatorTrue) {
+TEST(StreamGroupedReduceOpTest, CanBeStreamOperatorTrue) {
     OutputTest out;
     ReduceOp op(&out, true);
     EXPECT_TRUE(op.canBeStreamOperator());
 }
 
-TEST(StreamGroupedReduceOperatorTest, CanBeStreamOperatorFalse) {
+TEST(StreamGroupedReduceOpTest, CanBeStreamOperatorFalse) {
     OutputTest out;
     ReduceOp op(&out, false);
     EXPECT_FALSE(op.canBeStreamOperator());
@@ -40,7 +40,7 @@ TEST(StreamGroupedReduceOperatorTest, CanBeStreamOperatorFalse) {
 
 // ---------- isSetKeyContextElement ----------
 
-TEST(StreamGroupedReduceOperatorTest, IsSetKeyContextElement) {
+TEST(StreamGroupedReduceOpTest, IsSetKeyContextElement) {
     OutputTest out;
     ReduceOp op(&out, true);
     EXPECT_TRUE(op.isSetKeyContextElement());
@@ -48,7 +48,7 @@ TEST(StreamGroupedReduceOperatorTest, IsSetKeyContextElement) {
 
 // ---------- ProcessWatermark ----------
 
-TEST(StreamGroupedReduceOperatorTest, ProcessWatermarkForwarded) {
+TEST(StreamGroupedReduceOpTest, ProcessWatermarkForwarded) {
     OutputTest out;
     ReduceOp op(&out, true);
     op.setup();
@@ -60,7 +60,7 @@ TEST(StreamGroupedReduceOperatorTest, ProcessWatermarkForwarded) {
 
 // ---------- processWatermarkStatus ----------
 
-TEST(StreamGroupedReduceOperatorTest, ProcessWatermarkStatusForwarded) {
+TEST(StreamGroupedReduceOpTest, ProcessWatermarkStatusForwarded) {
     OutputTest out;
     ReduceOp op(&out, true);
     op.setup();
@@ -70,7 +70,7 @@ TEST(StreamGroupedReduceOperatorTest, ProcessWatermarkStatusForwarded) {
 
 // ---------- close ----------
 
-TEST(StreamGroupedReduceOperatorTest, CloseDoesNotCrash) {
+TEST(StreamGroupedReduceOpTest, CloseDoesNotCrash) {
     OutputTest out;
     ReduceOp op(&out, true);
     EXPECT_NO_THROW(op.close());
