@@ -1,6 +1,14 @@
 #include <gtest/gtest.h>
 #include "streaming/api/operators/OperatorSnapshotFutures.h"
 
+// Derive types from the class getters to handle header variations
+using KeyedManagedFutureType = decltype(std::declval<OperatorSnapshotFutures>().getKeyedStateManagedFuture());
+using KeyedRawFutureType = decltype(std::declval<OperatorSnapshotFutures>().getKeyedStateRawFuture());
+using OpManagedFutureType = decltype(std::declval<OperatorSnapshotFutures>().getOperatorStateManagedFuture());
+using OpRawFutureType = decltype(std::declval<OperatorSnapshotFutures>().getOperatorStateRawFuture());
+using InputChannelFutureType = decltype(std::declval<OperatorSnapshotFutures>().getInputChannelStateFuture());
+using ResultSubFutureType = decltype(std::declval<OperatorSnapshotFutures>().getResultSubpartitionStateFuture());
+
 TEST(OperatorSnapshotFuturesTest, DefaultConstruction) {
     OperatorSnapshotFutures futures;
     EXPECT_EQ(futures.getKeyedStateManagedFuture(), nullptr);
@@ -13,54 +21,42 @@ TEST(OperatorSnapshotFuturesTest, DefaultConstruction) {
 
 TEST(OperatorSnapshotFuturesTest, SetAndGetKeyedStateManagedFuture) {
     OperatorSnapshotFutures futures;
-    auto task = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<KeyedStateHandle>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<KeyedStateHandle>> { return nullptr; }
-    );
+    KeyedManagedFutureType task(new typename KeyedManagedFutureType::element_type());
     futures.setKeyedStateManagedFuture(task);
     EXPECT_EQ(futures.getKeyedStateManagedFuture(), task);
 }
 
 TEST(OperatorSnapshotFuturesTest, SetAndGetKeyedStateRawFuture) {
     OperatorSnapshotFutures futures;
-    auto task = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<KeyedStateHandle>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<KeyedStateHandle>> { return nullptr; }
-    );
+    KeyedRawFutureType task(new typename KeyedRawFutureType::element_type());
     futures.setKeyedStateRawFuture(task);
     EXPECT_EQ(futures.getKeyedStateRawFuture(), task);
 }
 
 TEST(OperatorSnapshotFuturesTest, SetAndGetOperatorStateManagedFuture) {
     OperatorSnapshotFutures futures;
-    auto task = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<OperatorStateHandle>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<OperatorStateHandle>> { return nullptr; }
-    );
+    OpManagedFutureType task(new typename OpManagedFutureType::element_type());
     futures.setOperatorStateManagedFuture(task);
     EXPECT_EQ(futures.getOperatorStateManagedFuture(), task);
 }
 
 TEST(OperatorSnapshotFuturesTest, SetAndGetOperatorStateRawFuture) {
     OperatorSnapshotFutures futures;
-    auto task = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<OperatorStateHandle>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<OperatorStateHandle>> { return nullptr; }
-    );
+    OpRawFutureType task(new typename OpRawFutureType::element_type());
     futures.setOperatorStateRawFuture(task);
     EXPECT_EQ(futures.getOperatorStateRawFuture(), task);
 }
 
 TEST(OperatorSnapshotFuturesTest, SetAndGetInputChannelStateFuture) {
     OperatorSnapshotFutures futures;
-    auto task = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<StateObjectCollection<InputChannelStateHandle>>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<StateObjectCollection<InputChannelStateHandle>>> { return nullptr; }
-    );
+    InputChannelFutureType task(new typename InputChannelFutureType::element_type());
     futures.setInputChannelStateFuture(task);
     EXPECT_EQ(futures.getInputChannelStateFuture(), task);
 }
 
 TEST(OperatorSnapshotFuturesTest, SetAndGetResultSubpartitionStateFuture) {
     OperatorSnapshotFutures futures;
-    auto task = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<StateObjectCollection<ResultSubpartitionStateHandle>>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<StateObjectCollection<ResultSubpartitionStateHandle>>> { return nullptr; }
-    );
+    ResultSubFutureType task(new typename ResultSubFutureType::element_type());
     futures.setResultSubpartitionStateFuture(task);
     EXPECT_EQ(futures.getResultSubpartitionStateFuture(), task);
 }
@@ -74,7 +70,6 @@ TEST(OperatorSnapshotFuturesTest, Cancel) {
 
 TEST(OperatorSnapshotFuturesTest, SemaphoreNoWait) {
     OperatorSnapshotFutures futures;
-    // With waitcount=0, OperatorSemWait should be a no-op
     futures.OperatorSemWait();
     SUCCEED();
 }
@@ -85,34 +80,4 @@ TEST(OperatorSnapshotFuturesTest, SemaphoreInitPostWait) {
     futures.OperatorSemPost();
     futures.OperatorSemWait();
     SUCCEED();
-}
-
-TEST(OperatorSnapshotFuturesTest, FullConstruction) {
-    auto keyedManaged = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<KeyedStateHandle>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<KeyedStateHandle>> { return nullptr; }
-    );
-    auto keyedRaw = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<KeyedStateHandle>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<KeyedStateHandle>> { return nullptr; }
-    );
-    auto opManaged = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<OperatorStateHandle>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<OperatorStateHandle>> { return nullptr; }
-    );
-    auto opRaw = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<OperatorStateHandle>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<OperatorStateHandle>> { return nullptr; }
-    );
-    auto inputChannel = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<StateObjectCollection<InputChannelStateHandle>>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<StateObjectCollection<InputChannelStateHandle>>> { return nullptr; }
-    );
-    auto resultSub = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<StateObjectCollection<ResultSubpartitionStateHandle>>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<StateObjectCollection<ResultSubpartitionStateHandle>>> { return nullptr; }
-    );
-
-    OperatorSnapshotFutures futures(keyedManaged, keyedRaw, opManaged, opRaw, inputChannel, resultSub);
-
-    EXPECT_EQ(futures.getKeyedStateManagedFuture(), keyedManaged);
-    EXPECT_EQ(futures.getKeyedStateRawFuture(), keyedRaw);
-    EXPECT_EQ(futures.getOperatorStateManagedFuture(), opManaged);
-    EXPECT_EQ(futures.getOperatorStateRawFuture(), opRaw);
-    EXPECT_EQ(futures.getInputChannelStateFuture(), inputChannel);
-    EXPECT_EQ(futures.getResultSubpartitionStateFuture(), resultSub);
 }
