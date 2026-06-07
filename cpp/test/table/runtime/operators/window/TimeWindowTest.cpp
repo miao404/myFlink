@@ -1,5 +1,7 @@
 #include <gtest/gtest.h>
 #include "table/runtime/operators/window/TimeWindow.h"
+#include "core/memory/DataOutputSerializer.h"
+#include "core/memory/DataInputDeserializer.h"
 
 TEST(TimeWindowTest, Construction) {
     TimeWindow w(0, 1000);
@@ -169,14 +171,15 @@ TEST(TimeWindowTest, SerializerSerializeDeserialize) {
     DataOutputSerializer outputView(128);
     serializer.serialize(&original, outputView);
 
-    auto buf = outputView.getSharedCopyOfBuffer();
-    DataInputView inputView(buf->data(), buf->size());
+    auto* buf = outputView.getCopyOfBuffer();
+    DataInputDeserializer inputView(buf->data(), buf->size());
     auto* deserialized = static_cast<TimeWindow*>(serializer.deserialize(inputView));
 
     ASSERT_NE(deserialized, nullptr);
     EXPECT_EQ(deserialized->getStart(), 12345);
     EXPECT_EQ(deserialized->getEnd(), 67890);
     delete deserialized;
+    delete buf;
 }
 
 TEST(TimeWindowTest, SerializerBackendId) {
