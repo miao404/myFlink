@@ -64,7 +64,7 @@ TEST(StreamGroupedReduceOperatorTest, ProcessWatermarkStatusForwarded) {
     OutputTest out;
     ReduceOp op(&out, true);
     op.setup();
-    WatermarkStatus status(WatermarkStatus::IDLE_STATUS);
+    WatermarkStatus status(WatermarkStatus::idleStatus);
     EXPECT_NO_THROW(op.processWatermarkStatus(&status));
 }
 

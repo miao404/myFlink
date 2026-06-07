@@ -174,7 +174,7 @@ TEST(StreamFilterTest, ProcessWatermarkStatusForwarded) {
     auto* filter = new AlwaysTrueFilter();
     StreamFilterObj op(&out, filter, false);
     op.setup();
-    WatermarkStatus status(WatermarkStatus::IDLE_STATUS);
+    WatermarkStatus status(WatermarkStatus::idleStatus);
     EXPECT_NO_THROW(op.processWatermarkStatus(&status));
 }
 

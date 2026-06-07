@@ -79,7 +79,7 @@ TEST(CountingOutputTest, EmitWatermarkStatus) {
     SimpleCounter counter;
     CountingOutput countingOutput(&inner, &counter);
 
-    WatermarkStatus status(WatermarkStatus::IDLE_STATUS);
+    WatermarkStatus status(WatermarkStatus::idleStatus);
     countingOutput.emitWatermarkStatus(&status);
 
     EXPECT_EQ(inner.wmStatus, &status);

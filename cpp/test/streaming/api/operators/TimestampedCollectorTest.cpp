@@ -88,7 +88,7 @@ TEST(TimestampedCollectorTest, EmitWatermarkStatus) {
     OutputTest output;
     TimestampedCollector collector(&output, false);
 
-    WatermarkStatus status(WatermarkStatus::IDLE_STATUS);
+    WatermarkStatus status(WatermarkStatus::idleStatus);
     collector.emitWatermarkStatus(&status);
     SUCCEED();
 }

@@ -78,7 +78,7 @@ TEST(StreamExpandTest, ProcessWatermarkStatus) {
     json desc = json::object();
     BatchOutputTest output;
     StreamExpand expand(desc, &output);
-    WatermarkStatus status(WatermarkStatus::IDLE_STATUS);
+    WatermarkStatus status(WatermarkStatus::idleStatus);
     expand.processWatermarkStatus(&status);
     SUCCEED();
 }

@@ -15,10 +15,7 @@ public:
         AbstractStreamOperator<void*>::initializeState(initializer, keySerializer);
     }
 
-    // Make initializeState(context) visible for tests that don't need state
-    void initializeState(StateInitializationContextImpl<void*>* context) override {}
 
-    const char* getName() override { return "TestableStreamOperator"; }
 };
 
 // ---------- Constructor / setup ----------
@@ -117,7 +114,7 @@ TEST(AbstractStreamOperatorTest, ProcessWatermarkStatusForwardsToOutput) {
     OutputTest out;
     TestableStreamOperator op(&out);
     op.setup();
-    WatermarkStatus status(WatermarkStatus::IDLE_STATUS);
+    WatermarkStatus status(WatermarkStatus::idleStatus);
     EXPECT_NO_THROW(op.processWatermarkStatus(&status));
 }
 
