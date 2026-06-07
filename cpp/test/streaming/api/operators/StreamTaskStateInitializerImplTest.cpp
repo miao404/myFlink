@@ -9,27 +9,18 @@
 // ===========================================================================
 
 TEST(StreamOperatorStateContextImplTest, ConstructWithNullptrs) {
-    StreamOperatorStateContextImpl<void*> ctx(std::nullopt, nullptr, nullptr, nullptr);
+    StreamOperatorStateContextImpl<void*> ctx(nullptr, nullptr);
     EXPECT_EQ(ctx.keyedStateBackend(), nullptr);
-    EXPECT_EQ(ctx.operatorStateBackend(), nullptr);
     EXPECT_EQ(ctx.getInternalTimeServiceManager(), nullptr);
-    EXPECT_FALSE(ctx.getRestoredCheckpointId().has_value());
 }
 
-TEST(StreamOperatorStateContextImplTest, ConstructWithCheckpointId) {
-    uint64_t cpId = 42;
-    StreamOperatorStateContextImpl<void*> ctx(cpId, nullptr, nullptr, nullptr);
-    ASSERT_TRUE(ctx.getRestoredCheckpointId().has_value());
-    EXPECT_EQ(ctx.getRestoredCheckpointId().value(), 42u);
-}
-
-TEST(StreamOperatorStateContextImplTest, GettersReturnProvidedPointers) {
-    // We cannot easily create real backends without full env, so test the
-    // getter/setter wiring with nullptr - the important thing is that the
-    // constructor stores and the getters return the same pointers.
-    StreamOperatorStateContextImpl<void*> ctx(std::nullopt, nullptr, nullptr, nullptr);
+TEST(StreamOperatorStateContextImplTest, KeyedStateBackendReturnsNull) {
+    StreamOperatorStateContextImpl<void*> ctx(nullptr, nullptr);
     EXPECT_EQ(ctx.keyedStateBackend(), nullptr);
-    EXPECT_EQ(ctx.operatorStateBackend(), nullptr);
+}
+
+TEST(StreamOperatorStateContextImplTest, TimeServiceManagerReturnsNull) {
+    StreamOperatorStateContextImpl<void*> ctx(nullptr, nullptr);
     EXPECT_EQ(ctx.getInternalTimeServiceManager(), nullptr);
 }
 
@@ -38,7 +29,6 @@ TEST(StreamOperatorStateContextImplTest, GettersReturnProvidedPointers) {
 // ===========================================================================
 
 TEST(StreamTaskStateInitializerImplTest, ConstructWithNullEnv) {
-    // Constructing with nullptr env should not crash
     StreamTaskStateInitializerImpl initializer(static_cast<omnistream::EnvironmentV2*>(nullptr));
     EXPECT_EQ(initializer.getEnvironment(), nullptr);
 }
@@ -46,36 +36,23 @@ TEST(StreamTaskStateInitializerImplTest, ConstructWithNullEnv) {
 /*
  * Interfaces NOT tested and reasons:
  *
- * 1. StreamTaskStateInitializerImpl(StateBackend*, EnvironmentV2*):
- *    Requires a valid StateBackend subclass instance. Testing would need a
- *    full environment setup with proper configuration. The constructor just
- *    stores pointers, so the wiring is trivial.
+ * 1. StreamOperatorStateContextImpl with real backends:
+ *    Requires creating AbstractKeyedStateBackend and InternalTimeServiceManager
+ *    instances which need full runtime env (KeyGroupRange, TypeSerializer, etc.)
  *
- * 2. streamOperatorStateContext<K>(...):
- *    This template method requires a fully configured EnvironmentV2 with
- *    TaskConfiguration, TaskStateManager, etc. It calls env->taskConfiguration()
- *    which would segfault with a null env. Creating a valid EnvironmentV2
- *    requires the entire OmniStream runtime (task manager, network stack, etc.)
- *    which cannot be mocked in a unit test without a full integration setup.
+ * 2. StreamTaskStateInitializerImpl(StateBackend*, EnvironmentV2*):
+ *    Requires a valid StateBackend subclass instance.
  *
- * 3. keyedStatedBackend<K>(...) (3 overloads):
- *    The 4-parameter overload is testable only with a valid TypeSerializer.
- *    The 7-parameter overload depends on env and state backend configuration.
- *    The 4-parameter restore overload requires MetricGroup and OperatorID
- *    along with a proper state backend.
- *    All overloads create real state backends (HeapKeyedStateBackend,
- *    RocksdbKeyedStateBackend, etc.) that require complex initialization.
+ * 3. streamOperatorStateContext<K>(...):
+ *    Requires a fully configured EnvironmentV2 with TaskConfiguration,
+ *    TaskStateManager, etc. Calling env->taskConfiguration() segfaults with null env.
  *
- * 4. operatorStateBackend(...):
- *    Requires env->getTaskStateManager() to be valid. Returns a
- *    DefaultOperatorStateBackend which needs proper restoration context.
+ * 4. keyedStatedBackend<K>(...) (all overloads):
+ *    Requires valid TypeSerializer and potentially state manager for restore.
  *
- * 5. getPrioritizedOperatorSubtaskStates():
- *    Directly accesses env->taskConfiguration() and env->getTaskStateManager(),
- *    both of which require a fully initialized runtime environment.
+ * 5. operatorStateBackend(...):
+ *    Requires env->getTaskStateManager() to be valid.
  *
  * 6. collectRawKeyedStateHandles(...):
- *    Accesses env and env->getTaskStateManager(). The null-env path returns
- *    an empty vector, but the function is private (inline) and cannot be
- *    called directly from tests.
+ *    Private/protected method, cannot be called directly from tests.
  */
