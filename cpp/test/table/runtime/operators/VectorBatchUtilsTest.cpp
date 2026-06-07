@@ -9,6 +9,11 @@ BinaryRowData* createRow(int arity) {
     return BinaryRowData::createBinaryRowDataWithMem(arity);
 }
 
+void deleteRow(RowData* r) {
+    delete[] static_cast<BinaryRowData*>(r)->getSegment();
+    delete r;
+}
+
 } // namespace
 
 TEST(VectorBatchUtilsTest, AppendLongVectorForInt64) {
@@ -29,10 +34,7 @@ TEST(VectorBatchUtilsTest, AppendLongVectorForInt64) {
     EXPECT_EQ(vec->GetValue(1), 200L);
     EXPECT_EQ(vec->GetValue(2), 300L);
 
-    for (auto* r : rows) {
-        delete[] r->getSegment();
-        delete r;
-    }
+    for (auto* r : rows) { deleteRow(r); }
     delete vb;
 }
 
@@ -51,8 +53,7 @@ TEST(VectorBatchUtilsTest, AppendLongVectorForDouble) {
     EXPECT_EQ(vb->GetVectorCount(), 1);
 
     for (auto* r : rows) {
-        delete[] r->getSegment();
-        delete r;
+        deleteRow(r);
     }
     delete vb;
 }
@@ -76,8 +77,7 @@ TEST(VectorBatchUtilsTest, AppendIntVector) {
     EXPECT_EQ(vec->GetValue(2), 30);
 
     for (auto* r : rows) {
-        delete[] r->getSegment();
-        delete r;
+        deleteRow(r);
     }
     delete vb;
 }
@@ -97,8 +97,7 @@ TEST(VectorBatchUtilsTest, AppendIntVectorForBool) {
     EXPECT_EQ(vb->GetVectorCount(), 1);
 
     for (auto* r : rows) {
-        delete[] r->getSegment();
-        delete r;
+        deleteRow(r);
     }
     delete vb;
 }
@@ -116,8 +115,7 @@ TEST(VectorBatchUtilsTest, AppendStringVectorExceedsRowsThrows) {
     auto* row = createRow(1);
     rows.push_back(row);
     EXPECT_THROW(VectorBatchUtils::AppendStringVector(vb, rows, 5, 0), std::runtime_error);
-    delete[] row->getSegment();
-    delete row;
+    deleteRow(row);
     delete vb;
 }
 
@@ -142,8 +140,7 @@ TEST(VectorBatchUtilsTest, AppendMultipleColumnTypes) {
     EXPECT_EQ(intVec->GetValue(0), 10);
 
     for (auto* r : rows) {
-        delete[] r->getSegment();
-        delete r;
+        deleteRow(r);
     }
     delete vb;
 }
