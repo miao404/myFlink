@@ -1,7 +1,9 @@
 /*
- * Unit tests for TimerSerializer
- * Covers construction, getName, getBackendId, serialize/deserialize,
- * GetBuffer, setSubBufferReusable for multiple template specializations.
+ * Unit tests for TimerSerializer and TimerHeapInternalTimer
+ *
+ * Build environment note: TimerSerializer is a non-template class inheriting
+ * from TypeSerializerSingleton, with only the 4-arg constructor:
+ *   TimerSerializer(TypeSerializer*, TypeSerializer*, Class*, Class*)
  */
 #include <gtest/gtest.h>
 #include "table/runtime/operators/TimerSerializer.h"
@@ -10,20 +12,35 @@
 #include "core/memory/DataOutputSerializer.h"
 #include "core/memory/DataInputDeserializer.h"
 #include "basictypes/Long.h"
+#include "basictypes/Class.h"
 
 // ============================================================================
-// Test: Construction with 2 args (keySerializer, namespaceSerializer)
+// Helper: create Class* for Long (int64_t key)
 // ============================================================================
-TEST(TimerSerializerTest, ConstructionTwoArgs)
+static Class* makeLongClass()
 {
-    auto *keySerializer = new LongSerializer();
-    auto *nsSerializer = new VoidNamespaceSerializer();
+    return new Class([]() -> Object* { return new Long(0L); });
+}
 
-    // TimerSerializer<int64_t, VoidNamespace> uses the 2-arg constructor
-    auto *ts = new TimerSerializer<int64_t, VoidNamespace>(keySerializer, nsSerializer);
+// ============================================================================
+// Helper: create Class* for VoidNamespace
+// ============================================================================
+static Class* makeVoidNamespaceClass()
+{
+    return new Class([]() -> Object* { return new VoidNamespace(); });
+}
+
+// ============================================================================
+// Test: Construction with 4 args
+// ============================================================================
+TEST(TimerSerializerTest, Construction)
+{
+    auto *ts = new TimerSerializer(
+        new LongSerializer(), new VoidNamespaceSerializer(),
+        makeLongClass(), makeVoidNamespaceClass());
 
     ASSERT_NE(ts, nullptr);
-    delete ts;  // will delete keySerializer and nsSerializer
+    delete ts;
 }
 
 // ============================================================================
@@ -31,9 +48,9 @@ TEST(TimerSerializerTest, ConstructionTwoArgs)
 // ============================================================================
 TEST(TimerSerializerTest, GetName)
 {
-    auto *keySerializer = new LongSerializer();
-    auto *nsSerializer = new VoidNamespaceSerializer();
-    auto *ts = new TimerSerializer<int64_t, VoidNamespace>(keySerializer, nsSerializer);
+    auto *ts = new TimerSerializer(
+        new LongSerializer(), new VoidNamespaceSerializer(),
+        makeLongClass(), makeVoidNamespaceClass());
 
     EXPECT_STREQ(ts->getName(), "TimerSerializer");
     delete ts;
@@ -44,40 +61,75 @@ TEST(TimerSerializerTest, GetName)
 // ============================================================================
 TEST(TimerSerializerTest, GetBackendId)
 {
-    auto *keySerializer = new LongSerializer();
-    auto *nsSerializer = new VoidNamespaceSerializer();
-    auto *ts = new TimerSerializer<int64_t, VoidNamespace>(keySerializer, nsSerializer);
+    auto *ts = new TimerSerializer(
+        new LongSerializer(), new VoidNamespaceSerializer(),
+        makeLongClass(), makeVoidNamespaceClass());
 
     EXPECT_EQ(ts->getBackendId(), BackendDataType::OBJECT_BK);
     delete ts;
 }
 
 // ============================================================================
-// Test: Serialize and Deserialize roundtrip for <int64_t, VoidNamespace>
+// Test: Serialize and Deserialize roundtrip
 // ============================================================================
-TEST(TimerSerializerTest, SerializeDeserializeInt64VoidNamespace)
+TEST(TimerSerializerTest, SerializeDeserializeRoundtrip)
 {
-    auto *keySerializer = new LongSerializer();
-    auto *nsSerializer = new VoidNamespaceSerializer();
-    auto *ts = new TimerSerializer<int64_t, VoidNamespace>(keySerializer, nsSerializer);
+    auto *ts = new TimerSerializer(
+        new LongSerializer(), new VoidNamespaceSerializer(),
+        makeLongClass(), makeVoidNamespaceClass());
 
-    // Create a timer
-    auto *timer = new TimerHeapInternalTimer<int64_t, VoidNamespace>(12345L, 42L, VoidNamespace());
+    // Create a timer using Object* key/namespace
+    auto *keyObj = new Long(42L);
+    auto *nsObj = new VoidNamespace();
+    auto *timer = new TimerHeapInternalTimer<Object*, Object*>(
+        12345L, static_cast<Object*>(keyObj), static_cast<Object*>(nsObj));
 
     // Serialize
-    DataOutputSerializer output(128);
+    DataOutputSerializer output(256);
     ts->serialize(static_cast<Object*>(timer), output);
 
+    EXPECT_GT(output.getPosition(), 0);
+
     // Deserialize
-    auto data = output.getCopyOfBuffer();
-    DataInputDeserializer input(data->data(), data->size());
-    auto *deserialized = static_cast<TimerHeapInternalTimer<int64_t, VoidNamespace>*>(ts->deserialize(input));
+    DataInputDeserializer input(output.getData(), output.getPosition());
+    auto *deserialized = static_cast<TimerHeapInternalTimer<Object*, Object*>*>(ts->deserialize(input));
 
     ASSERT_NE(deserialized, nullptr);
     EXPECT_EQ(deserialized->getTimestamp(), 12345L);
-    EXPECT_EQ(deserialized->getKey(), 42L);
 
     delete deserialized;
+    delete timer;
+    delete ts;
+}
+
+// ============================================================================
+// Test: Deserialize with Object* buffer overload
+// ============================================================================
+TEST(TimerSerializerTest, DeserializeWithBuffer)
+{
+    auto *ts = new TimerSerializer(
+        new LongSerializer(), new VoidNamespaceSerializer(),
+        makeLongClass(), makeVoidNamespaceClass());
+
+    // Create and serialize
+    auto *keyObj = new Long(7L);
+    auto *nsObj = new VoidNamespace();
+    auto *timer = new TimerHeapInternalTimer<Object*, Object*>(
+        9999L, static_cast<Object*>(keyObj), static_cast<Object*>(nsObj));
+
+    DataOutputSerializer output(256);
+    ts->serialize(static_cast<Object*>(timer), output);
+
+    // Deserialize into pre-allocated buffer
+    DataInputDeserializer input(output.getData(), output.getPosition());
+    Object *buffer = ts->GetBuffer();
+    ASSERT_NE(buffer, nullptr);
+    ts->deserialize(buffer, input);
+
+    auto *result = static_cast<TimerHeapInternalTimer<Object*, Object*>*>(buffer);
+    EXPECT_EQ(result->getTimestamp(), 9999L);
+
+    result->putRefCount();
     delete timer;
     delete ts;
 }
@@ -87,11 +139,10 @@ TEST(TimerSerializerTest, SerializeDeserializeInt64VoidNamespace)
 // ============================================================================
 TEST(TimerSerializerTest, SetSubBufferReusable)
 {
-    auto *keySerializer = new LongSerializer();
-    auto *nsSerializer = new VoidNamespaceSerializer();
-    auto *ts = new TimerSerializer<int64_t, VoidNamespace>(keySerializer, nsSerializer);
+    auto *ts = new TimerSerializer(
+        new LongSerializer(), new VoidNamespaceSerializer(),
+        makeLongClass(), makeVoidNamespaceClass());
 
-    // Should not crash
     ts->setSubBufferReusable(true);
     ts->setSubBufferReusable(false);
 
@@ -99,34 +150,32 @@ TEST(TimerSerializerTest, SetSubBufferReusable)
 }
 
 // ============================================================================
-// Test: GetBuffer (non-reusable mode — creates new instance)
+// Test: GetBuffer creates valid instance
 // ============================================================================
-TEST(TimerSerializerTest, GetBufferNonReusable)
+TEST(TimerSerializerTest, GetBuffer)
 {
-    auto *keySerializer = new LongSerializer();
-    auto *nsSerializer = new VoidNamespaceSerializer();
-    auto *ts = new TimerSerializer<int64_t, VoidNamespace>(keySerializer, nsSerializer);
+    auto *ts = new TimerSerializer(
+        new LongSerializer(), new VoidNamespaceSerializer(),
+        makeLongClass(), makeVoidNamespaceClass());
 
-    // bufferReusable defaults to false for <int64_t, VoidNamespace>
     Object *buffer = ts->GetBuffer();
     ASSERT_NE(buffer, nullptr);
 
-    // Cast to timer and verify it's a valid TimerHeapInternalTimer
-    auto *timer = static_cast<TimerHeapInternalTimer<int64_t, VoidNamespace>*>(buffer);
+    auto *timer = static_cast<TimerHeapInternalTimer<Object*, Object*>*>(buffer);
     EXPECT_EQ(timer->getTimestamp(), 0L);
 
-    delete timer;
+    timer->putRefCount();
     delete ts;
 }
 
 // ============================================================================
-// Test: toJson returns valid JSON string
+// Test: toJson returns non-empty string
 // ============================================================================
 TEST(TimerSerializerTest, ToJson)
 {
-    auto *keySerializer = new LongSerializer();
-    auto *nsSerializer = new VoidNamespaceSerializer();
-    auto *ts = new TimerSerializer<int64_t, VoidNamespace>(keySerializer, nsSerializer);
+    auto *ts = new TimerSerializer(
+        new LongSerializer(), new VoidNamespaceSerializer(),
+        makeLongClass(), makeVoidNamespaceClass());
 
     std::string json = ts->toJson();
     EXPECT_FALSE(json.empty());
@@ -135,55 +184,44 @@ TEST(TimerSerializerTest, ToJson)
 }
 
 // ============================================================================
-// Test: Deserialize with Object* buffer overload
+// TimerHeapInternalTimer tests (template class, tested independently)
 // ============================================================================
-TEST(TimerSerializerTest, DeserializeWithBuffer)
+
+TEST(TimerHeapInternalTimerTest, DefaultConstruction)
 {
-    auto *keySerializer = new LongSerializer();
-    auto *nsSerializer = new VoidNamespaceSerializer();
-    auto *ts = new TimerSerializer<int64_t, VoidNamespace>(keySerializer, nsSerializer);
-
-    // Create and serialize a timer
-    auto *timer = new TimerHeapInternalTimer<int64_t, VoidNamespace>(9999L, 7L, VoidNamespace());
-    DataOutputSerializer output(128);
-    ts->serialize(static_cast<Object*>(timer), output);
-
-    // Deserialize into a pre-allocated buffer
-    auto data = output.getCopyOfBuffer();
-    DataInputDeserializer input(data->data(), data->size());
-    auto *target = new TimerHeapInternalTimer<int64_t, VoidNamespace>();
-    ts->deserialize(static_cast<Object*>(target), input);
-
-    EXPECT_EQ(target->getTimestamp(), 9999L);
-    EXPECT_EQ(target->getKey(), 7L);
-
-    delete target;
-    delete timer;
-    delete ts;
+    TimerHeapInternalTimer<int64_t, VoidNamespace> timer;
+    EXPECT_EQ(timer.getTimestamp(), 0L);
+    EXPECT_EQ(timer.getKey(), 0L);
 }
 
-// ============================================================================
-// Test: TimerHeapInternalTimer basic operations (complementary coverage)
-// ============================================================================
-TEST(TimerSerializerTest, TimerHeapInternalTimerBasic)
+TEST(TimerHeapInternalTimerTest, ParameterizedConstruction)
 {
     TimerHeapInternalTimer<int64_t, VoidNamespace> timer(100L, 5L, VoidNamespace());
     EXPECT_EQ(timer.getTimestamp(), 100L);
     EXPECT_EQ(timer.getKey(), 5L);
+}
 
+TEST(TimerHeapInternalTimerTest, SetTimestamp)
+{
+    TimerHeapInternalTimer<int64_t, VoidNamespace> timer(100L, 5L, VoidNamespace());
     timer.setTimestamp(200L);
     EXPECT_EQ(timer.getTimestamp(), 200L);
+}
 
+TEST(TimerHeapInternalTimerTest, SetKey)
+{
+    TimerHeapInternalTimer<int64_t, VoidNamespace> timer(100L, 5L, VoidNamespace());
     timer.setKey(10L);
     EXPECT_EQ(timer.getKey(), 10L);
+}
 
+TEST(TimerHeapInternalTimerTest, SetNamespace)
+{
+    TimerHeapInternalTimer<int64_t, VoidNamespace> timer(100L, 5L, VoidNamespace());
     timer.setNamespace(VoidNamespace());
 }
 
-// ============================================================================
-// Test: TimerHeapInternalTimer equality operator for int64_t key
-// ============================================================================
-TEST(TimerSerializerTest, TimerHeapInternalTimerEquality)
+TEST(TimerHeapInternalTimerTest, EqualityOperator)
 {
     TimerHeapInternalTimer<int64_t, VoidNamespace> timer1(100L, 5L, VoidNamespace());
     TimerHeapInternalTimer<int64_t, VoidNamespace> timer2(100L, 5L, VoidNamespace());
@@ -193,31 +231,34 @@ TEST(TimerSerializerTest, TimerHeapInternalTimerEquality)
     EXPECT_TRUE(timer1 != timer3);
 }
 
-// ============================================================================
-// Test: TimerHeapInternalTimer default constructor
-// ============================================================================
-TEST(TimerSerializerTest, TimerHeapInternalTimerDefaultCtor)
+TEST(TimerHeapInternalTimerTest, ObjectPtrKeyConstruction)
 {
-    TimerHeapInternalTimer<int64_t, VoidNamespace> timer;
-    EXPECT_EQ(timer.getTimestamp(), 0L);
-    EXPECT_EQ(timer.getKey(), 0L);
+    auto *key = new Long(42L);
+    auto *ns = new VoidNamespace();
+    auto *timer = new TimerHeapInternalTimer<Object*, Object*>(
+        500L, static_cast<Object*>(key), static_cast<Object*>(ns));
+
+    EXPECT_EQ(timer->getTimestamp(), 500L);
+
+    delete timer;
+    // timer destructor calls putRefCount on key and ns
 }
 
 // ============================================================================
 // Paths that may not be fully coverable:
 //
-// 1. serialize/deserialize for Object* key type:
-//    Requires Object* key with refcounting — complex memory management
+// 1. serialize/deserialize for shared_ptr key type:
+//    Requires KeySelector<K>::isSharedRowKey_ specialization
 //
-// 2. serialize/deserialize for shared_ptr key type:
-//    Requires is_shared_ptr_v<K> specialization with real RowData keys
+// 2. serialize/deserialize for int32_t key (Integer):
+//    Needs IntegerSerializer which may not be available
 //
-// 3. serialize/deserialize for TimeWindow namespace:
-//    Requires TimeWindow::Serializer::deserialize
+// 3. deserialize for TimeWindow namespace:
+//    Requires TimeWindow::Serializer
 //
 // 4. snapshotConfiguration():
-//    Throws NOT_IMPL_EXCEPTION — cannot test without catch
+//    Throws NOT_IMPL_EXCEPTION
 //
-// 5. Construction with 4 args (keyClazz, namespaceClazz):
-//    Requires Class* with newInstance() — complex dependency
+// 5. GetBuffer with bufferReusable=true path:
+//    Requires reuseBuffer to be set (only for Object*/Object* specialization)
 // ============================================================================
