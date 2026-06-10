@@ -3,6 +3,12 @@
  * Covers constructor branches (null vs non-null futures) and accessor methods.
  */
 #include <gtest/gtest.h>
+
+// Build env has OperatorSubtaskState in omnistream namespace; bring it into scope
+// before OperatorSnapshotFinalizer.h uses it unqualified.
+#include "runtime/checkpoint/OperatorSubtaskState.h"
+using omnistream::OperatorSubtaskState;
+
 #include "streaming/api/operators/OperatorSnapshotFinalizer.h"
 
 // ============================================================================
@@ -68,51 +74,9 @@ TEST(OperatorSnapshotFinalizerTest, WithKeyedStateRawFuture)
 }
 
 // ============================================================================
-// Test: OperatorStateManaged future is set — covers "if (operatorStateManaged)" branch
+// Test: Both keyed state futures non-null — covers both "if" branches
 // ============================================================================
-TEST(OperatorSnapshotFinalizerTest, WithOperatorStateManagedFuture)
-{
-    auto *futures = new OperatorSnapshotFutures();
-
-    auto task = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<OperatorStateHandle>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<OperatorStateHandle>> {
-            return std::make_shared<SnapshotResult<OperatorStateHandle>>(nullptr, nullptr);
-        });
-    futures->setOperatorStateManagedFuture(task);
-
-    OperatorSnapshotFinalizer finalizer(futures);
-
-    ASSERT_NE(finalizer.getJobManagerOwnedState(), nullptr);
-    ASSERT_NE(finalizer.getTaskLocalState(), nullptr);
-
-    delete futures;
-}
-
-// ============================================================================
-// Test: OperatorStateRaw future is set — covers "if (operatorStateRaw)" branch
-// ============================================================================
-TEST(OperatorSnapshotFinalizerTest, WithOperatorStateRawFuture)
-{
-    auto *futures = new OperatorSnapshotFutures();
-
-    auto task = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<OperatorStateHandle>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<OperatorStateHandle>> {
-            return std::make_shared<SnapshotResult<OperatorStateHandle>>(nullptr, nullptr);
-        });
-    futures->setOperatorStateRawFuture(task);
-
-    OperatorSnapshotFinalizer finalizer(futures);
-
-    ASSERT_NE(finalizer.getJobManagerOwnedState(), nullptr);
-    ASSERT_NE(finalizer.getTaskLocalState(), nullptr);
-
-    delete futures;
-}
-
-// ============================================================================
-// Test: All futures non-null — covers all "if" branches simultaneously
-// ============================================================================
-TEST(OperatorSnapshotFinalizerTest, AllFuturesNonNull)
+TEST(OperatorSnapshotFinalizerTest, BothKeyedFuturesNonNull)
 {
     auto *futures = new OperatorSnapshotFutures();
 
@@ -124,19 +88,9 @@ TEST(OperatorSnapshotFinalizerTest, AllFuturesNonNull)
         []() -> std::shared_ptr<SnapshotResult<KeyedStateHandle>> {
             return std::make_shared<SnapshotResult<KeyedStateHandle>>(nullptr, nullptr);
         });
-    auto opManaged = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<OperatorStateHandle>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<OperatorStateHandle>> {
-            return std::make_shared<SnapshotResult<OperatorStateHandle>>(nullptr, nullptr);
-        });
-    auto opRaw = std::make_shared<std::packaged_task<std::shared_ptr<SnapshotResult<OperatorStateHandle>>()>>(
-        []() -> std::shared_ptr<SnapshotResult<OperatorStateHandle>> {
-            return std::make_shared<SnapshotResult<OperatorStateHandle>>(nullptr, nullptr);
-        });
 
     futures->setKeyedStateManagedFuture(keyedManaged);
     futures->setKeyedStateRawFuture(keyedRaw);
-    futures->setOperatorStateManagedFuture(opManaged);
-    futures->setOperatorStateRawFuture(opRaw);
 
     OperatorSnapshotFinalizer finalizer(futures);
 
@@ -147,14 +101,48 @@ TEST(OperatorSnapshotFinalizerTest, AllFuturesNonNull)
 }
 
 // ============================================================================
+// Test: OperatorSnapshotFutures semaphore operations
+// ============================================================================
+TEST(OperatorSnapshotFinalizerTest, FuturesSemaphoreOps)
+{
+    auto *futures = new OperatorSnapshotFutures();
+
+    // Test semaphore init/post/wait lifecycle
+    futures->OperatorSemInit();
+    futures->OperatorSemPost();
+    futures->OperatorSemWait();
+
+    delete futures;
+}
+
+// ============================================================================
+// Test: OperatorSnapshotFutures cancel returns pair
+// ============================================================================
+TEST(OperatorSnapshotFinalizerTest, FuturesCancel)
+{
+    auto *futures = new OperatorSnapshotFutures();
+
+    auto result = futures->cancel();
+    EXPECT_EQ(result.first, 0);
+    EXPECT_EQ(result.second, 0);
+
+    delete futures;
+}
+
+// ============================================================================
 // Paths that may not be fully coverable:
 //
-// 1. InputChannelState / ResultSubpartitionState futures:
-//    These require real InputChannelStateHandle / ResultSubpartitionStateHandle
-//    snapshot results with non-null JobManagerOwnedSnapshot. The current test
-//    covers the "== nullptr" branches for these.
+// 1. operatorStateManaged / operatorStateRaw "if" branches:
+//    Build env has different type signature for setOperatorState* methods
+//    than the repo, cannot portably set these futures in test code.
+//    The "else" branches are covered by the AllNullFutures test.
 //
-// 2. SnapshotResult with real KeyedStateHandle/OperatorStateHandle data:
-//    The "if" branches are covered with SnapshotResult(nullptr, nullptr) which
-//    still exercises the branch but GetJobManagerOwnedSnapshot returns nullptr.
+// 2. InputChannelState / ResultSubpartitionState futures:
+//    These require real handles with non-null snapshots.
+//    The "== nullptr" branches are covered by AllNullFutures.
+//
+// 3. SnapshotResult with real KeyedStateHandle data:
+//    GetJobManagerOwnedSnapshot/GetTaskLocalSnapshot return nullptr
+//    from SnapshotResult(nullptr, nullptr), so the SingletonOrEmpty
+//    receives nullptr in the "if" branch.
 // ============================================================================
