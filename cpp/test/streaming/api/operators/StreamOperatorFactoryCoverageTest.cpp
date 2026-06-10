@@ -337,7 +337,7 @@ TEST(StreamOperatorFactoryCoverage, CreateFilterOpStream)
     nlohmann::json desc;
     desc["udf_so"] = "";
     desc["udfClassName"] = "TestFilterFunction";
-    auto pod = makeOpPOD(std::string(OPERATOR_NAME_FILTER), desc.dump(), Type_o::STREAM);
+    auto pod = makeOpPOD(std::string(datastream::OPERATOR_NAME_FILTER), desc.dump(), Type_o::STREAM);
     auto* op = StreamOperatorFactory::createOperatorAndCollector(pod, &out, nullptr);
     ASSERT_NE(op, nullptr);
     delete op;
