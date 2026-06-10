@@ -143,8 +143,9 @@ TEST(StreamOperatorFactoryCoverage, CreateStreamJoinOp)
     desc["rightInputTypes"] = nlohmann::json::array({"INT", "BIGINT"});
     desc["outputTypes"] = nlohmann::json::array({"INT", "BIGINT", "INT", "BIGINT"});
     desc["joinType"] = "InnerJoin";
-    desc["leftIsOuter"] = false;
-    desc["rightIsOuter"] = false;
+    desc["filterNulls"] = nlohmann::json::array({false});
+    desc["leftInputSpec"] = "test_left";
+    desc["rightInputSpec"] = "test_right";
     desc["stateRetentionTime"] = 0;
     desc["nonEquiCondition"] = nullptr;
     auto pod = makeOpPOD(std::string(OPERATOR_NAME_STREAM_JOIN), desc.dump(), Type_o::SQL);
@@ -497,8 +498,9 @@ TEST(StreamOperatorFactoryCoverage, OperatorConfigStreamJoin)
     desc["rightInputTypes"] = nlohmann::json::array({"INT", "BIGINT"});
     desc["outputTypes"] = nlohmann::json::array({"INT", "BIGINT", "INT", "BIGINT"});
     desc["joinType"] = "InnerJoin";
-    desc["leftIsOuter"] = false;
-    desc["rightIsOuter"] = false;
+    desc["filterNulls"] = nlohmann::json::array({false});
+    desc["leftInputSpec"] = "test_left";
+    desc["rightInputSpec"] = "test_right";
     desc["stateRetentionTime"] = 0;
     desc["nonEquiCondition"] = nullptr;
     auto config = makeOpConfig(std::string(OPERATOR_NAME_STREAM_JOIN), desc);
