@@ -59,7 +59,7 @@ static std::string testConfigNoKey = R"delimiter({
 
 TEST(InnerJoinOperatorTest, Construction)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -71,7 +71,7 @@ TEST(InnerJoinOperatorTest, Construction)
 
 TEST(InnerJoinOperatorTest, JoinBothNull)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -84,7 +84,7 @@ TEST(InnerJoinOperatorTest, JoinBothNull)
 
 TEST(InnerJoinOperatorTest, JoinLeftNull)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -98,7 +98,7 @@ TEST(InnerJoinOperatorTest, JoinLeftNull)
 
 TEST(InnerJoinOperatorTest, JoinRightNull)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -112,7 +112,7 @@ TEST(InnerJoinOperatorTest, JoinRightNull)
 
 TEST(InnerJoinOperatorTest, ConstructionNoKey)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfigNoKey);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -128,7 +128,7 @@ TEST(InnerJoinOperatorTest, ConstructionNoKey)
 
 TEST(SemiAntiJoinOperatorTest, ConstructionSemiJoin)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -140,7 +140,7 @@ TEST(SemiAntiJoinOperatorTest, ConstructionSemiJoin)
 
 TEST(SemiAntiJoinOperatorTest, ConstructionAntiJoin)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -152,7 +152,7 @@ TEST(SemiAntiJoinOperatorTest, ConstructionAntiJoin)
 
 TEST(SemiAntiJoinOperatorTest, JoinEmptyImpl)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -172,7 +172,7 @@ TEST(SemiAntiJoinOperatorTest, JoinEmptyImpl)
 
 TEST(LeftOuterJoinOperatorTest, Construction)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -184,7 +184,7 @@ TEST(LeftOuterJoinOperatorTest, Construction)
 
 TEST(LeftOuterJoinOperatorTest, JoinBothNull)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -197,7 +197,7 @@ TEST(LeftOuterJoinOperatorTest, JoinBothNull)
 
 TEST(LeftOuterJoinOperatorTest, JoinRightNullOnly)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -214,7 +214,7 @@ TEST(LeftOuterJoinOperatorTest, JoinRightNullOnly)
 
 TEST(RightOuterJoinOperatorTest, Construction)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -226,7 +226,7 @@ TEST(RightOuterJoinOperatorTest, Construction)
 
 TEST(RightOuterJoinOperatorTest, JoinBothNull)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -243,7 +243,7 @@ TEST(RightOuterJoinOperatorTest, JoinBothNull)
 
 TEST(FullOuterJoinOperatorTest, Construction)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -255,7 +255,7 @@ TEST(FullOuterJoinOperatorTest, Construction)
 
 TEST(FullOuterJoinOperatorTest, JoinBothNull)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -268,7 +268,7 @@ TEST(FullOuterJoinOperatorTest, JoinBothNull)
 
 TEST(FullOuterJoinOperatorTest, JoinLeftNullOnly)
 {
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
@@ -286,7 +286,7 @@ TEST(AbstractOuterJoinOperatorTest, Construction)
 {
     // AbstractOuterJoinOperator is tested indirectly through LeftOuter/RightOuter/FullOuter
     // but we verify it doesn't add extra state beyond WindowJoinOperator
-    MockOutput out;
+    OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
