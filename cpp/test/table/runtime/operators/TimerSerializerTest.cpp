@@ -187,9 +187,9 @@ TEST(TimerSerializerTest, ToJson)
 // TimerHeapInternalTimer tests (template class, tested independently)
 // ============================================================================
 
-TEST(TimerHeapInternalTimerTest, DefaultConstruction)
+TEST(TimerHeapInternalTimerTest, ZeroConstruction)
 {
-    TimerHeapInternalTimer<int64_t, VoidNamespace> timer;
+    TimerHeapInternalTimer<int64_t, VoidNamespace> timer(0L, 0L, VoidNamespace());
     EXPECT_EQ(timer.getTimestamp(), 0L);
     EXPECT_EQ(timer.getKey(), 0L);
 }
