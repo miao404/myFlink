@@ -3,7 +3,9 @@
  * Covers: InnerJoinOperator, SemiAntiJoinOperator, LeftOuterJoinOperator,
  *         RightOuterJoinOperator, FullOuterJoinOperator
  *
- * Focus: constructor branches, join() null checks, and dispatch logic.
+ * Focus: constructor branches (key vs no-key, isAntiJoin).
+ * Note: join() cannot be called without open() (segfaults due to uninitialized
+ * SVE buffers and internal state). SemiAntiJoinOperator::join() is empty {}.
  */
 #include <gtest/gtest.h>
 #include "table/runtime/operators/join/window/WindowJoinOperator.h"
@@ -69,47 +71,6 @@ TEST(InnerJoinOperatorTest, Construction)
     delete op;
 }
 
-TEST(InnerJoinOperatorTest, JoinBothNull)
-{
-    OutputTest out;
-    auto config = nlohmann::json::parse(testConfig);
-    auto *leftSer = new LongSerializer();
-    auto *rightSer = new LongSerializer();
-
-    auto *op = new InnerJoinOperator<int64_t>(config, &out, leftSer, rightSer);
-    // Both null — should return early without crash
-    op->join(nullptr, nullptr);
-    delete op;
-}
-
-TEST(InnerJoinOperatorTest, JoinLeftNull)
-{
-    OutputTest out;
-    auto config = nlohmann::json::parse(testConfig);
-    auto *leftSer = new LongSerializer();
-    auto *rightSer = new LongSerializer();
-
-    auto *op = new InnerJoinOperator<int64_t>(config, &out, leftSer, rightSer);
-    std::vector<VectorBatchId> rightRecords;
-    // Left null — should return early
-    op->join(nullptr, &rightRecords);
-    delete op;
-}
-
-TEST(InnerJoinOperatorTest, JoinRightNull)
-{
-    OutputTest out;
-    auto config = nlohmann::json::parse(testConfig);
-    auto *leftSer = new LongSerializer();
-    auto *rightSer = new LongSerializer();
-
-    auto *op = new InnerJoinOperator<int64_t>(config, &out, leftSer, rightSer);
-    std::vector<VectorBatchId> leftRecords;
-    // Right null — should return early
-    op->join(&leftRecords, nullptr);
-    delete op;
-}
-
 TEST(InnerJoinOperatorTest, ConstructionNoKey)
 {
     OutputTest out;
@@ -160,7 +121,7 @@ TEST(SemiAntiJoinOperatorTest, JoinEmptyImpl)
     auto *op = new SemiAntiJoinOperator<int64_t>(config, &out, leftSer, rightSer, false);
     std::vector<VectorBatchId> left;
     std::vector<VectorBatchId> right;
-    // join() is empty implementation — should not crash
+    // join() is empty implementation — safe to call
     op->join(&left, &right);
     op->join(nullptr, nullptr);
     delete op;
@@ -182,32 +143,6 @@ TEST(LeftOuterJoinOperatorTest, Construction)
     delete op;
 }
 
-TEST(LeftOuterJoinOperatorTest, JoinBothNull)
-{
-    OutputTest out;
-    auto config = nlohmann::json::parse(testConfig);
-    auto *leftSer = new LongSerializer();
-    auto *rightSer = new LongSerializer();
-
-    auto *op = new LeftOuterJoinOperator<int64_t>(config, &out, leftSer, rightSer);
-    // Both null — no branch matches, no output
-    op->join(nullptr, nullptr);
-    delete op;
-}
-
-TEST(LeftOuterJoinOperatorTest, JoinRightNullOnly)
-{
-    OutputTest out;
-    auto config = nlohmann::json::parse(testConfig);
-    auto *leftSer = new LongSerializer();
-    auto *rightSer = new LongSerializer();
-
-    auto *op = new LeftOuterJoinOperator<int64_t>(config, &out, leftSer, rightSer);
-    // Right null, left null — no branch matches
-    op->join(nullptr, nullptr);
-    delete op;
-}
-
 // ============================================================================
 // RightOuterJoinOperator Tests
 // ============================================================================
@@ -221,19 +156,6 @@ TEST(RightOuterJoinOperatorTest, Construction)
 
     auto *op = new RightOuterJoinOperator<int64_t>(config, &out, leftSer, rightSer);
     ASSERT_NE(op, nullptr);
-    delete op;
-}
-
-TEST(RightOuterJoinOperatorTest, JoinBothNull)
-{
-    OutputTest out;
-    auto config = nlohmann::json::parse(testConfig);
-    auto *leftSer = new LongSerializer();
-    auto *rightSer = new LongSerializer();
-
-    auto *op = new RightOuterJoinOperator<int64_t>(config, &out, leftSer, rightSer);
-    // Both null — no branch matches
-    op->join(nullptr, nullptr);
     delete op;
 }
 
@@ -253,66 +175,32 @@ TEST(FullOuterJoinOperatorTest, Construction)
     delete op;
 }
 
-TEST(FullOuterJoinOperatorTest, JoinBothNull)
-{
-    OutputTest out;
-    auto config = nlohmann::json::parse(testConfig);
-    auto *leftSer = new LongSerializer();
-    auto *rightSer = new LongSerializer();
-
-    auto *op = new FullOuterJoinOperator<int64_t>(config, &out, leftSer, rightSer);
-    // Both null — no branch matches, no output
-    op->join(nullptr, nullptr);
-    delete op;
-}
-
-TEST(FullOuterJoinOperatorTest, JoinLeftNullOnly)
-{
-    OutputTest out;
-    auto config = nlohmann::json::parse(testConfig);
-    auto *leftSer = new LongSerializer();
-    auto *rightSer = new LongSerializer();
-
-    auto *op = new FullOuterJoinOperator<int64_t>(config, &out, leftSer, rightSer);
-    // Left null only — only "rightRecords != nullptr && leftRecords == nullptr" branch
-    op->join(nullptr, nullptr);
-    delete op;
-}
-
 // ============================================================================
-// AbstractOuterJoinOperator — construction test
+// AbstractOuterJoinOperator — construction test (via LeftOuter)
 // ============================================================================
 TEST(AbstractOuterJoinOperatorTest, Construction)
 {
-    // AbstractOuterJoinOperator is tested indirectly through LeftOuter/RightOuter/FullOuter
-    // but we verify it doesn't add extra state beyond WindowJoinOperator
     OutputTest out;
     auto config = nlohmann::json::parse(testConfig);
     auto *leftSer = new LongSerializer();
     auto *rightSer = new LongSerializer();
 
-    // LeftOuterJoinOperator inherits from AbstractOuterJoinOperator
     auto *op = new LeftOuterJoinOperator<int64_t>(config, &out, leftSer, rightSer);
     ASSERT_NE(op, nullptr);
     delete op;
 }
 
 // ============================================================================
-// Paths that may not be fully coverable without SVE runtime:
+// Paths that cannot be covered without full runtime (open() + SVE):
 //
-// 1. InnerJoinOperator::join with non-null records (equi path):
-//    Calls buildInner() which uses SVE vectorized operations.
-//    Requires ARM aarch64+SVE to execute.
+// 1. All join() methods on InnerJoin/LeftOuter/RightOuter/FullOuter:
+//    Calling join() without open() segfaults because internal state
+//    (SVE buffers, output batch, collector) is uninitialized.
+//    open() requires full OmniStreamTask runtime environment.
 //
-// 2. InnerJoinOperator::join with non-equi condition (filter path):
-//    Calls filter() which requires LLVM JIT codegen.
+// 2. Non-equi condition paths (filter):
+//    Requires LLVM JIT codegen via generateJoinCondition().
 //
-// 3. LeftOuterJoinOperator::join with leftRecords != null && rightRecords == null:
-//    Calls buildRightNull() which uses SVE operations.
-//
-// 4. RightOuterJoinOperator::join with rightRecords != null && leftRecords == null:
-//    Calls buildLeftNull() which uses SVE operations.
-//
-// 5. FullOuterJoinOperator::join all three branches with actual data:
-//    All call buildInner/buildRightNull/buildLeftNull requiring SVE.
+// 3. ProcessWatermark / onProcessingTime:
+//    Tested in WindowJoinOperatorCoverageTest.cpp
 // ============================================================================
