@@ -11,6 +11,7 @@ import com.huawei.omniruntime.flink.runtime.api.state.serializer.model.info.Omni
 import com.huawei.omniruntime.flink.runtime.api.state.serializer.model.info.OmniStateMetaSerializerInfo;
 import com.huawei.omniruntime.flink.runtime.metrics.exception.GeneralRuntimeException;
 import com.huawei.omniruntime.flink.utils.ReflectionUtils;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.state.StateDescriptor;
@@ -88,6 +89,7 @@ public class OmniStateSerializerHelper {
                     }
                     continue;
                 }
+                LOG.debug("method : buildSerializerInfo -> stateTableName : {}, key : {}.", stateTableName, item.getKey());
                 StateDescriptor<?, ?> stateDescriptor = buildStateDescriptor(stateTableName, item.getKey(), item.getValue(), executionConfig, userCodeClassLoader);
                 if (null == stateDescriptor) {
                     continue;
@@ -220,6 +222,28 @@ public class OmniStateSerializerHelper {
             info.setFieldNames(nameList);
         }
 
+        if (null != map.get(OmniSerializerJson.FIELDS.getKey())) {
+            String fieldsStr = (String) map.get(OmniSerializerJson.FIELDS.getKey());
+            List<Map<String, Object>> fields = JsonHelper.fromJson(fieldsStr, new TypeReference<List<Map<String, Object>>>() {
+            });
+            List<String> fieldNameList = new ArrayList<>();
+            List<OmniNativeSerializerJsonInfo> fieldSerializerList = new ArrayList<>();
+            for (Map<String, Object> field : fields) {
+                if (MapUtils.isNotEmpty(field)) {
+                    String fieldNameStr = (String) field.get(OmniSerializerJson.FIELD_NAME.getKey());
+                    fieldNameList.add(StringUtils.isEmpty(fieldNameStr) ? SC.EMPTY : fieldNameStr);
+
+                    String fieldSerializerStr = (String) field.get(OmniSerializerJson.FIELD_NAME.getKey());
+                    fieldSerializerList.add(StringUtils.isEmpty(fieldSerializerStr) ? null : convert(fieldSerializerStr, userCodeClassLoader, depth + DEPTH_INTERVAL));
+                } else {
+                    fieldNameList.add(SC.EMPTY);
+                    fieldSerializerList.add(null);
+                }
+            }
+            info.setFieldNames(fieldNameList);
+            info.setFieldSerializers(fieldSerializerList);
+        }
+
         if (null != map.get(OmniSerializerJson.LOGICAL_TYPE.getKey())) {
             String logicalTypeStr = JsonHelper.toJson(map.get(OmniSerializerJson.LOGICAL_TYPE.getKey()));
             if (StringUtils.isNotEmpty(logicalTypeStr)) {
@@ -249,7 +273,7 @@ public class OmniStateSerializerHelper {
                 }
                 OmniSerializerKey serializerKey = OmniSerializerKey.getBy(item.getKey());
                 if (null == serializerKey) {
-                    LOG.warn("method : buildSerializerJsonInfo -> key : {} undefined.", item.getKey());
+                    LOG.warn("method : buildSerializerInfo -> stateTableName : {}, key : {} undefined.", metaInfo.getName(), item.getKey());
                     continue;
                 }
                 if (null == item.getValue()) {
@@ -260,6 +284,7 @@ public class OmniStateSerializerHelper {
                     }
                     continue;
                 }
+                LOG.debug("method : buildSerializerJsonInfo -> stateTableName : {}, key : {}.", metaInfo.getName(), item.getKey());
                 OmniSerializerJsonInfo jsonInfo = buildJsonInfo(item.getValue().restoreSerializer());
                 if (null != jsonInfo) {
                     String key = OmniSerializerKey.STATE_SERIALIZER.equals(serializerKey.getMetaKey())

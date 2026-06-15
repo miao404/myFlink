@@ -1,20 +1,12 @@
 /*
- • Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
-
- • You can use this software according to the terms and conditions of the Mulan PSL v2.
-
- • You may obtain a copy of Mulan PSL v2 at:
-
- •          http://license.coscl.org.cn/MulanPSL2
-
- • THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
-
- • EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
-
- • MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
-
- • See the Mulan PSL v2 for more details.
-
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ * You can use this software according to the terms and conditions of the Mulan PSL v2.
+ * You may obtain a copy of Mulan PSL v2 at:
+ *          http://license.coscl.org.cn/MulanPSL2
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND,
+ * EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT,
+ * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
+ * See the Mulan PSL v2 for more details.
  */
 #include "CheckpointedInputGate.h"
 
@@ -64,7 +56,6 @@ BufferOrEvent* CheckpointedInputGate::PollNext()
     }
 
     if (bufferOrEvent->isEvent()) {
-        INFO_RELEASE("CheckpointedInputGate::PollNext() is event")
         return HandleEvent(bufferOrEvent);
     } else if (bufferOrEvent->isBuffer()) {
         barrierHandler_->AddProcessedBytes(bufferOrEvent->getSize());
@@ -80,7 +71,6 @@ BufferOrEvent* CheckpointedInputGate::HandleEvent(
     INFO_RELEASE("Start to handle event, eventClassName: " << eventClassName)
 
     if (bufferOrEvent->getEvent()->GetEventClassName() == "CheckpointBarrier") {
-        INFO_RELEASE("CheckpointedInputGate::HandleEvent is CheckpointBarrier")
         auto checkpointBarrier = std::dynamic_pointer_cast<CheckpointBarrier>(bufferOrEvent->getEvent());
         if (!checkpointBarrier) {
             INFO_RELEASE("CheckpointedInputGate::HandleEvent checkpointBarrier is nullptr")
@@ -89,7 +79,6 @@ BufferOrEvent* CheckpointedInputGate::HandleEvent(
         barrierHandler_->ProcessBarrier(*checkpointBarrier,
                                         bufferOrEvent->getChannelInfo(),
                                         false);
-        INFO_RELEASE("CheckpointedInputGate::HandleEvent finish ProcessBarrier")
     } else if (bufferOrEvent->getEvent()->GetEventClassName() == "EventAnnouncement") {
         INFO_RELEASE("CheckpointedInputGate::HandleEvent received an announcement event.")
         auto ann = std::dynamic_pointer_cast<EventAnnouncement>(bufferOrEvent->getEvent());
@@ -112,19 +101,17 @@ BufferOrEvent* CheckpointedInputGate::HandleEvent(
                                                         bufferOrEvent->getChannelInfo());
         }
     } else if (bufferOrEvent->getEvent()->GetEventClassName() == "CancelCheckpointMarker") {
-        INFO_RELEASE("CheckpointedInputGate::HandleEvent is CancelCheckpointMarker")
         barrierHandler_->ProcessCancellationBarrier(
             *std::dynamic_pointer_cast<CancelCheckpointMarker>(bufferOrEvent->getEvent()),
             bufferOrEvent->getChannelInfo());
     } else if (bufferOrEvent->getEvent()->GetEventClassName() == "EndOfPartitionEvent") {
-        INFO_RELEASE("CheckpointedInputGate::HandleEvent is EndOfPartitionEvent")
         barrierHandler_->ProcessEndOfPartition(bufferOrEvent->getChannelInfo());
     } else if (bufferOrEvent->getEvent()->GetEventClassName() == "EndOfChannelStateEvent") {
         INFO_RELEASE("CheckpointedInputGate::HandleEvent received an EndOfChannelStateEvent.");
         upstreamRecoveryTracker_->handleEndOfRecovery(bufferOrEvent->getChannelInfo());
     } else {
     }
-    INFO_RELEASE("Finish to handle event, eventClassName: " << eventClassName)
+
     return bufferOrEvent;
 }
 

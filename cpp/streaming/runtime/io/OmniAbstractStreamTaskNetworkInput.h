@@ -156,7 +156,7 @@ public:
         return it->second.get();
     }
 
-DataInputStatus processBufferOrEventOptForSQL(OmniPushingAsyncDataInput::OmniDataOutput* output,
+    DataInputStatus processBufferOrEventOptForSQL(OmniPushingAsyncDataInput::OmniDataOutput* output,
                                                   BufferOrEvent* bufferOrEvent)
     {
         isLastValueNull = false;
@@ -174,9 +174,6 @@ DataInputStatus processBufferOrEventOptForSQL(OmniPushingAsyncDataInput::OmniDat
             LOG(">>>>>buffer size is " << size << " buffer offset is " << offset)
 
             LOG("===================start output=======================")
-            auto startTime = std::chrono::high_resolution_clock::now();
-            auto startTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(startTime.time_since_epoch()).count();
-//            INFO_RELEASE("processBufferOrEventOptForSQL is buffer start " << startTimeMs)
             for (int64_t index = offset; index < offset + size; index++) {
                 StreamElement *object = objSegment->getObject(index);
                 int tag = static_cast<int>(object->getTag());
@@ -201,11 +198,6 @@ DataInputStatus processBufferOrEventOptForSQL(OmniPushingAsyncDataInput::OmniDat
                     LOG("Bypass the tag for now: " << tag)
                 }
             }
-            auto endTime = std::chrono::high_resolution_clock::now();
-            auto endTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(endTime.time_since_epoch()).count();
-//            INFO_RELEASE("processBufferOrEventOptForSQL is buffer end " << endTimeMs)
-            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime).count();
-            INFO_RELEASE("processBufferOrEventOptForSQL for loop execution time: " << duration << " microseconds, processed " << size << " objects")
             // more avaiable means there could be more data come in
             buff->RecycleBuffer();
             delete buff; // this is ReadOnlySlicedNetworkBuffer, so we directly delete it

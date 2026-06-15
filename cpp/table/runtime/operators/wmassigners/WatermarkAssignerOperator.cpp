@@ -23,14 +23,22 @@ WatermarkAssignerOperator::WatermarkAssignerOperator(
 
 void WatermarkAssignerOperator::processBatch(StreamRecord *element)
 {
-    LOG("WaterMark process Batch")
+    if (splitWaterMark) {
+        processBatchWatermark(element);
+    } else {
+        processBatchSimple(element);
+    }
+}
 
+void WatermarkAssignerOperator::processBatchWatermark(StreamRecord *input)
+{
+    auto record = std::unique_ptr<StreamRecord>(input);
     if (idleTimeout_ > 0 && currentStatus->Equals(WatermarkStatus::idleStatus)) {
         emitWatermarkStatus(new WatermarkStatus(WatermarkStatus::activeStatus));
         lastRecordTime_ = getProcessingTimeService()->getCurrentProcessingTime();
     }
 
-    omnistream::VectorBatch *batch = reinterpret_cast<omnistream::VectorBatch *>(element->getValue());
+    auto batch = std::unique_ptr<omnistream::VectorBatch>(reinterpret_cast<omnistream::VectorBatch*>(record->getValue()));
     bool splitBatch = false;
     int32_t offset = 0;
 
@@ -42,23 +50,43 @@ void WatermarkAssignerOperator::processBatch(StreamRecord *element)
         if (currentWatermark_ - lastWatermark_ > emissionInterval_){
             splitBatch = true;
             int32_t newRowCnt = i + 1 - offset;
-            omnistream::VectorBatch *pBatch = VectorBatchUtil::sliceVectorBatch(batch, offset, newRowCnt);
+            omnistream::VectorBatch *pBatch = VectorBatchUtil::sliceVectorBatch(batch.get(), offset, newRowCnt);
             output->collect(new StreamRecord(pBatch));
             offset = i + 1;
             advanceWatermark();
         }
     }
-    if (splitBatch){
+    if (splitBatch) {
         int32_t newRowCnt = timeColumn->GetSize()-offset;
         if (newRowCnt > 0){
-            omnistream::VectorBatch *pBatch = VectorBatchUtil::sliceVectorBatch(batch, offset, newRowCnt);
+            omnistream::VectorBatch *pBatch = VectorBatchUtil::sliceVectorBatch(batch.get(), offset, newRowCnt);
             output->collect(new StreamRecord(pBatch));
         }
-        delete element;
-    }else{
-        LOG("no watermark emit, send the original batch")
-        output->collect(element);
+    } else {
+        batch.release();
+        output->collect(record.release());
     }
+}
+
+void WatermarkAssignerOperator::processBatchSimple(StreamRecord *element)
+{
+    omnistream::VectorBatch *batch = reinterpret_cast<omnistream::VectorBatch *>(element->getValue());
+    int64_t currentWatermarkMax = 0;
+    auto timeColumn = reinterpret_cast<omniruntime::vec::Vector<int64_t> *>(batch->Get(rowtimeIndex_));
+    for (int i = 0; i < timeColumn->GetSize(); i++) {
+        currentWatermarkMax = std::max(currentWatermarkMax, timeColumn->GetValue(i));
+    }
+    currentWatermark_ = currentWatermarkMax - outOfOrderTime_;
+    output->collect(element);
+    LOG("WatermarkAssignerOperator::processBatch currentWatermark_: " << currentWatermark_ << "  lastWatermark_: " << lastWatermark_ << "  emissionInterval_: " << emissionInterval_)
+    if (currentWatermark_ - lastWatermark_ > emissionInterval_) {
+        LOG("WatermarkAssignerOperator::processBatch advanceWatermark")
+        advanceWatermark();
+    }
+}
+
+void WatermarkAssignerOperator::setSplitWaterMark(bool doSplitWaterMark){
+    this->splitWaterMark = doSplitWaterMark;
 }
 
 void WatermarkAssignerOperator::processElement(StreamRecord *element)

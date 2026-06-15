@@ -68,6 +68,11 @@ private:
             return kvStateId_;
         }
 
+        size_t getEntryCount() const override
+        {
+            return serializedKeys_.size();
+        }
+
         void close() override
         {
             valid_ = false;
@@ -117,7 +122,7 @@ public:
         return serializedKeys_.size();
     }
 
-    const std::string &getStateName() const
+    const std::string &getStateName() const override
     {
         static const std::string emptyName;
         return metaInfo_ == nullptr ? emptyName : metaInfo_->getName();

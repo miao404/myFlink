@@ -16,6 +16,7 @@
 #include "../../data/binary/BinaryRowData.h"
 #include "typeinfo/TypeInformation.h"
 #include "table/data/rowdata_marshaller.h"
+#include "core/utils/key_type_traits.h"
 #include "core/utils/type_traits_ext.h"
 #include "table/data/StringRefUtil.h"
 #include "OmniOperatorJIT/core/src/operator/hashmap/vector_marshaller.h"
@@ -53,8 +54,8 @@ public:
 
     bool canReuseKey();
 
-    static constexpr bool isRowKey_ = std::is_same_v<K, BinaryRowData*> || std::is_same_v<K, RowData*>;
-    static constexpr bool isSharedRowKey_ = is_shared_ptr_of_v<K, BinaryRowData> || is_shared_ptr_of_v<K, RowData>;
+    static constexpr bool isRowKey_ = KeyTypeTraits<K>::isRowKey;
+    static constexpr bool isSharedRowKey_ = KeyTypeTraits<K>::isSharedRowKey;
 
 private:
     omniruntime::mem::SimpleArenaAllocator arenaAllocator;
@@ -108,7 +109,7 @@ K KeySelector<K>::getKey(omnistream::VectorBatch *inputBatch, int row, bool enab
         return key;
     } else {
         if (keyColIndices.size() != 1) {
-            throw std::runtime_error("KeySelector getKey: keyColIndices size is not 1");
+            THROW_LOGIC_EXCEPTION("KeySelector getKey: keyColIndices size is not 1");
         }
         switch (keyColTypeIds[0]) {
             case OMNI_LONG:
@@ -121,7 +122,7 @@ K KeySelector<K>::getKey(omnistream::VectorBatch *inputBatch, int row, bool enab
                 return reinterpret_cast<vec::Vector<int32_t>*>(inputBatch->Get(keyColIndices[0]))->GetValue(row);
                 break;
             default:
-                throw std::runtime_error("Key type not supported!");
+                THROW_LOGIC_EXCEPTION("Key type not supported, typeId: " << keyColTypeIds[0]);
         }
     }
 }
@@ -151,13 +152,13 @@ K KeySelector<K>::getKey(RowData* input)
                     key->setInt(i, *input->getInt(keyColIndices[i]));
                     break;
                 default:
-                    throw std::runtime_error("Key type not supported!");
+                    THROW_LOGIC_EXCEPTION("Key type not supported, typeId: " << keyColTypeIds[i]);
             }
         }
         return key;
     } else {
         if (keyColIndices.size() != 1) {
-            throw std::runtime_error("KeySelector getKey: keyColIndices size is not 1");
+            THROW_LOGIC_EXCEPTION("KeySelector getKey: keyColIndices size is not 1");
         }
         switch (keyColTypeIds[0]) {
             case OMNI_LONG:
@@ -170,7 +171,7 @@ K KeySelector<K>::getKey(RowData* input)
                 return *input->getInt(keyColIndices[0]);
                 break;
             default:
-                throw std::runtime_error("Key type not supported!");
+                THROW_LOGIC_EXCEPTION("Key type not supported, typeId: " << keyColTypeIds[0]);
         }
     }
 }
@@ -205,8 +206,8 @@ KeySelector<K>::KeySelector(const std::vector<int32_t> &keyColTypeIds, const std
                 // If it is one of the old omniruntime types
                 serializers.push_back(omniruntime::op::vectorSerializerCenter[typeId]);
                 deserializers.push_back(omniruntime::op::vectorDeSerializerCenter[typeId]);
-	    } else {
-                throw std::runtime_error("Key type not supported!");
+	        } else {
+                THROW_LOGIC_EXCEPTION("Key type not supported, typeId: " << typeId);
             }
         }
     } else if constexpr (isRowKey_ || isSharedRowKey_) {
@@ -228,7 +229,7 @@ KeySelector<K>::KeySelector(const std::vector<int32_t> &keyColTypeIds, const std
                 rowSerializers.push_back(rowSerializerCenter[omniruntime::type::OMNI_LONG]);
                 rowDeserializers.push_back(rowDeserializerCenter[omniruntime::type::OMNI_LONG]);
             } else {
-                throw std::runtime_error("Key type not supported!");
+                THROW_LOGIC_EXCEPTION("Key type not supported, typeId: " << typeId);
             }
         }
 

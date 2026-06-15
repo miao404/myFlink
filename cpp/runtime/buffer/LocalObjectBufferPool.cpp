@@ -30,8 +30,7 @@ namespace omnistream {
           networkObjBufferPool_(networkObjBufferPool),
           maxNumberOfObjectSegments_(maxNumberOfMemorySegments),
           numberOfRequestedObjectSegments_(0),
-          subpartitionBufferRecyclers_(numberOfSubpartitions),
-          isDestroyed_(false)
+          subpartitionBufferRecyclers_(numberOfSubpartitions)
     {
         LOG_PART("Beginning of constructor")
         LOG_PART(" numberOfRequiredObjectSegments_"  << numberOfRequiredSegments_
@@ -237,6 +236,12 @@ namespace omnistream {
         LOG("requestObjectSegment loop will running")
         LOG_PART(" Back Pressure possible happens, current segment in pool is " << availableSegments.size())
         while (!(segment = requestObjectSegment(targetChannel))) {
+            if (cancelled_) {
+                throw std::runtime_error("Buffer pool request was cancelled.");
+            }
+            if (isDestroyed_) {
+                throw std::runtime_error("Buffer pool is destroyed.");
+            }
             LOG_PART(
                 " Back Pressure happens, current segment in pool is " << availableSegments.size() <<
                 "for channel "<< targetChannel)

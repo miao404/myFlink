@@ -73,7 +73,9 @@ void PipelinedSubpartition::release()
     // Release all available buffers
     while (buffers.size() > 0) {
         std::shared_ptr<BufferConsumerWithPartialRecordLength> buffer = buffers.poll();
-        buffer->getBufferConsumer()->close();
+        if (buffer != nullptr && buffer->getBufferConsumer() != nullptr) {
+            buffer->getBufferConsumer()->close();
+        }
     }
     buffers.clear();
 
@@ -129,8 +131,8 @@ BufferAndBacklog* PipelinedSubpartition::pollBuffer()
             flushRequested  = false;
         }
         if (bufferConsumer->isFinished()) {
-            buffers.poll()->getBufferConsumer()->close();
             decreaseBuffersInBacklogUnsafe(bufferConsumer->isBuffer());
+            buffers.poll()->getBufferConsumer()->close();
         }
 
         if (receiverExclusiveBuffersPerChannel == 0 && bufferConsumer->isFinished()) {
@@ -160,7 +162,7 @@ BufferAndBacklog* PipelinedSubpartition::pollBuffer()
     }
 
     if (buffer->GetDataType().isBlockingUpstream()) {
-        INFO_RELEASE("PipelinedSubpartition is blocked when pollBuffer, event data type: " << buffer->GetDataType().toString() <<
+        LOG("PipelinedSubpartition is blocked when pollBuffer, event data type: " << buffer->GetDataType().toString() <<
             ", subpartitionInfo: " << this->subpartitionInfo.toString())
         isBlocked = true;
     }
@@ -180,7 +182,6 @@ BufferAndBacklog* PipelinedSubpartition::pollBuffer()
 
 void PipelinedSubpartition::resumeConsumption()
 {
-    INFO_RELEASE("PipelinedSubpartition isBlocked = false")
     std::lock_guard<std::recursive_mutex> lock(buffersMutex);
     isBlocked = false;
 }
@@ -220,7 +221,7 @@ AvailabilityWithBacklog PipelinedSubpartition::getAvailabilityAndBacklog(int num
 
 bool PipelinedSubpartition::isDataAvailableUnsafe()
 {
-    return !buffers.isEmpty() && (flushRequested || getNumberOfQueuedBuffers() > 0);
+    return !isBlocked && (flushRequested || getNumberOfQueuedBuffers() > 0);
 }
 
 ObjectBufferDataType PipelinedSubpartition::getNextBufferTypeUnsafe()
@@ -351,7 +352,8 @@ int PipelinedSubpartition::getNumberOfFinishedBuffers()
         INFO_RELEASE("last buffer is null")
         throw std::runtime_error("last buffer is null");
     }
-    if (numBuffers == 1 && buffers.peekLast()->getBufferConsumer()->isFinished()) {
+    auto bufferConsumer = buffer->getBufferConsumer();
+    if (numBuffers == 1 && bufferConsumer->isFinished()) {
         return 1;
     }
     return std::max(0, numBuffers - 1);

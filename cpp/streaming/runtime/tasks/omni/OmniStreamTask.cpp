@@ -293,9 +293,8 @@ OmniStreamTask::OmniStreamTask(std::shared_ptr<RuntimeEnvironmentV2> &env,
         mailboxProcessor_->suspend();
     }
 
-    void OmniStreamTask::cleanup()
-    {
-        LOG_INFO_IMP("Stream Task Clean up")
+    void OmniStreamTask::cleanup() {
+        INFO_RELEASE("Start cleaning up OmniStreamTask")
         // clean up operator chain and record writer
         releaseOutputResource();
 
@@ -303,6 +302,11 @@ OmniStreamTask::OmniStreamTask(std::shared_ptr<RuntimeEnvironmentV2> &env,
             closedOperators_ = true;
             operatorChain->CloseAllOperators();
         }
+
+        if (inputProcessor_ != nullptr) {
+            inputProcessor_->close();
+        }
+        INFO_RELEASE("Finish cleaning up OmniStreamTask")
     }
 
     void OmniStreamTask::releaseOutputResource()
@@ -523,14 +527,16 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
         std::vector<int> keyTypes;
         for (auto& keyField : keyFields) {
             keyCols.emplace_back(keyField.getFieldIndex());
-            if (keyField.getFieldTypeName().compare("BIGINT") == 0) {
+            if (keyField.getFieldTypeName() == "BIGINT") {
                 keyTypes.emplace_back(omniruntime::type::OMNI_LONG);
-            }
-            if (keyField.getFieldTypeName().compare("VARCHAR") == 0) {
+            } else if (keyField.getFieldTypeName() == "VARCHAR") {
                 keyTypes.emplace_back(omniruntime::type::OMNI_VARCHAR);
-            }
-            if (keyField.getFieldTypeName().compare("INTEGER") == 0) {
+            } else if (keyField.getFieldTypeName() == "INTEGER") {
                 keyTypes.emplace_back(omniruntime::type::OMNI_INT);
+            } else if (keyField.getFieldTypeName() == "OMNI_TIME_WITHOUT_TIME_ZONE") {
+                keyTypes.emplace_back(omniruntime::type::OMNI_TIME_WITHOUT_TIME_ZONE);
+            } else {
+                THROW_LOGIC_EXCEPTION("Not supported field type: " << keyField.getFieldTypeName());
             }
         }
         return new KeySelector<BinaryRowData*>(keyTypes, keyCols);
@@ -546,7 +552,31 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
 
     void OmniStreamTask::dispatchOperatorEvent(const std::string& operatorIdString, const std::string& eventString)
     {
-        operatorChain->DispatchOperatorEvent(operatorIdString, eventString);
+        auto mailboxRunnable = std::make_shared<VoidFunctionRunnable>(
+            [this, operatorIdString, eventString]() {
+                try {
+                    operatorChain->DispatchOperatorEvent(operatorIdString, eventString);
+                } catch (const std::exception& e) {
+                    isRunning = false;
+                    LOG("Error: mailbox dispatch failed, operatorId="
+                        << operatorIdString << ", eventBytes=" << eventString.size()
+                        << ", error=" << e.what())
+                    mailboxProcessor_->suspend();
+                } catch (...) {
+                    isRunning = false;
+                    LOG("Error: mailbox dispatch failed, operatorId="
+                        << operatorIdString << ", eventBytes=" << eventString.size()
+                        << ", error=unknown")
+                    mailboxProcessor_->suspend();
+                }
+            }
+        );
+        try {
+            mainMailboxExecutor_->execute(mailboxRunnable, "dispatchOperatorEvent");
+        } catch (const std::exception& e) {
+            LOG("Error: operator event dropped, mailbox not running, operatorId="
+                << operatorIdString << ", error=" << e.what())
+        }
     }
 
     std::shared_ptr<CheckpointStorage> OmniStreamTask::createCheckpointStorage(StateBackend* backend)
@@ -565,11 +595,9 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
         return inputProcessor_->PrepareSnapshot(channelStateWriter, checkpointID);
     }
 
-    bool OmniStreamTask::PerformCheckpoint(CheckpointMetaData* checkpointMetaData,
-        CheckpointOptions* checkpointOptions, CheckpointMetricsBuilder* checkpointMetrics)
+    bool OmniStreamTask::PerformCheckpoint(std::shared_ptr<CheckpointMetaData> checkpointMetaData,
+        std::shared_ptr<CheckpointOptions> checkpointOptions, std::shared_ptr<CheckpointMetricsBuilder> checkpointMetrics)
     {
-        INFO_RELEASE("PerformCheckpoint - START, checkpointId=" << checkpointMetaData->GetCheckpointId()
-                                                                << ", task=" << taskName_);
         try {
             SnapshotType* checkpointType = checkpointOptions->GetCheckpointType();
             LOG("Starting checkpoint {} {} on task {}" << checkpointMetaData->GetCheckpointId()
@@ -592,10 +620,8 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
                     }
                 );
 
-                    INFO_RELEASE("PerformCheckpoint - calling subtaskCheckpointCoordinator->checkpointState, checkpointId=" << checkpointMetaData->GetCheckpointId());
                     subtaskCheckpointCoordinator->checkpointState(checkpointMetaData, checkpointOptions, checkpointMetrics,
                         operatorChain.get(), finishedOperators, isRunningLoad);
-                    INFO_RELEASE("PerformCheckpoint - checkpointState completed, checkpointId=" << checkpointMetaData->GetCheckpointId());
                 }
             );
             if (isRunning) {
@@ -603,7 +629,7 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
                 return true;
             } else {
                 VoidFunctionRunnable broadcastRunnable(
-                    [this, &checkpointMetaData]() {
+                    [this, checkpointMetaData]() {
                         // we cannot perform our checkpoint - let the downstream operators know that
                         // they
                         // should not wait for any input from this operator
@@ -782,43 +808,37 @@ void OmniStreamTask::processInput(MailboxDefaultAction::Controller *controller)
     }
 
     std::shared_ptr<CompletableFutureV2<bool>> OmniStreamTask::triggerCheckpointAsync(
-            CheckpointMetaData *checkpointMetaData, CheckpointOptions *checkpointOptions)
-{
-    INFO_RELEASE("OmniStreamTask::triggerCheckpointAsync - checkpointId=" << checkpointMetaData->GetCheckpointId()
-                                                                          << ", task=" << taskName_);
-    auto result = std::make_shared<CompletableFutureV2<bool>>();
-    auto mailboxRunnable = std::make_shared<VoidFunctionRunnable>(
-        [this, result, checkpointMetaData, checkpointOptions]() {
-            INFO_RELEASE("triggerCheckpointInMailbox - executing, checkpointId=" << checkpointMetaData->GetCheckpointId());
-            try {
-                auto inputGates = env_->GetAllInputGates();
-                bool noUnfinishedInputGates = std::all_of(inputGates.begin(),
-                    inputGates.end(), [](const std::shared_ptr<InputGate>& gate) {
-                        return gate->IsFinished();
-                    });
-                if (noUnfinishedInputGates) {
-                    result->Complete(TriggerCheckpointAsyncInMailbox(checkpointMetaData, checkpointOptions));
-                } else {
-                    result->Complete(triggerUnfinishedChannelsCheckpoint(checkpointMetaData, checkpointOptions));
-                }
-            } catch (const std::exception& ex) {
-                // Report the failure both via the Future result but also to the mailbox
-                // TTODO: result->set_exception(std::current_exception());
-                throw;
-            }
-        }
-    );
-
-    INFO_RELEASE("triggerCheckpointAsync - submitting to mailbox, checkpointId=" << checkpointMetaData->GetCheckpointId());
-    mainMailboxExecutor_->execute(mailboxRunnable, "triggerCheckpointInMailbox");
-    return result;
-}
-
-bool OmniStreamTask::TriggerCheckpointAsyncInMailbox(CheckpointMetaData *checkpointMetaData,
-        CheckpointOptions *checkpointOptions)
+        std::shared_ptr<CheckpointMetaData> checkpointMetaData, std::shared_ptr<CheckpointOptions> checkpointOptions)
     {
-        INFO_RELEASE("TriggerCheckpointAsyncInMailbox - START, checkpointId=" << checkpointMetaData->GetCheckpointId()
-                                                                              << ", task=" << taskName_);
+        auto result = std::make_shared<CompletableFutureV2<bool>>();
+        auto mailboxRunnable = std::make_shared<VoidFunctionRunnable>(
+            [this, result, checkpointMetaData, checkpointOptions]() {
+                try {
+                    auto inputGates = env_->GetAllInputGates();
+                    bool noUnfinishedInputGates = std::all_of(inputGates.begin(),
+                        inputGates.end(), [](const std::shared_ptr<InputGate>& gate) {
+                            return gate->IsFinished();
+                        });
+                    if (noUnfinishedInputGates) {
+                        result->Complete(TriggerCheckpointAsyncInMailbox(checkpointMetaData, checkpointOptions));
+                    } else {
+                        result->Complete(triggerUnfinishedChannelsCheckpoint(checkpointMetaData, checkpointOptions));
+                    }
+                } catch (const std::exception& ex) {
+                    // Report the failure both via the Future result but also to the mailbox
+                    // TTODO: result->set_exception(std::current_exception());
+                    throw;
+                }
+            }
+        );
+
+        mainMailboxExecutor_->execute(mailboxRunnable, "triggerCheckpointInMailbox");
+        return result;
+    }
+
+    bool OmniStreamTask::TriggerCheckpointAsyncInMailbox(std::shared_ptr<CheckpointMetaData> checkpointMetaData,
+        std::shared_ptr<CheckpointOptions> checkpointOptions)
+    {
         // TTODO: FlinkSecurityManager::monitorUserSystemExitForCurrentThread();
         try {
             auto currentTime = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -828,23 +848,20 @@ bool OmniStreamTask::TriggerCheckpointAsyncInMailbox(CheckpointMetaData *checkpo
                 1000000L * std::max(0L, currentTime - checkpointMetaData->GetTimestamp());
 
             // No alignment if we inject a checkpoint
-            CheckpointMetricsBuilder checkpointMetrics;
-            checkpointMetrics.SetAlignmentDurationNanos(0L);
-            checkpointMetrics.SetBytesProcessedDuringAlignment(0L);
-            checkpointMetrics.SetCheckpointStartDelayNanos(latestAsyncCheckpointStartDelayNanos);
+            auto checkpointMetrics = std::make_shared<CheckpointMetricsBuilder>();
+            checkpointMetrics->SetAlignmentDurationNanos(0L);
+            checkpointMetrics->SetBytesProcessedDuringAlignment(0L);
+            checkpointMetrics->SetCheckpointStartDelayNanos(latestAsyncCheckpointStartDelayNanos);
 
             subtaskCheckpointCoordinator->InitInputsCheckpoint(checkpointMetaData->GetCheckpointId(),
-                checkpointOptions);
-            INFO_RELEASE("TriggerCheckpointAsyncInMailbox - calling PerformCheckpoint, checkpointId=" << checkpointMetaData->GetCheckpointId());
-            bool success = PerformCheckpoint(checkpointMetaData, checkpointOptions, &checkpointMetrics);
-            INFO_RELEASE("TriggerCheckpointAsyncInMailbox - PerformCheckpoint returned=" << success
-                                                                                         << ", checkpointId=" << checkpointMetaData->GetCheckpointId());
+                checkpointOptions.get());
+
+            bool success = PerformCheckpoint(checkpointMetaData, checkpointOptions, checkpointMetrics);
             if (!success) {
                 DeclineCheckpoint(checkpointMetaData->GetCheckpointId());
             }
             return success;
         } catch (...) {
-            INFO_RELEASE("TriggerCheckpointAsyncInMailbox - EXCEPTION, checkpointId=" << checkpointMetaData->GetCheckpointId());
             // propagate exceptions only if the task is still in "running" state
             if (isRunning) {
                 LOG("Could not perform checkpoint " << checkpointMetaData->GetCheckpointId() <<
@@ -859,8 +876,8 @@ bool OmniStreamTask::TriggerCheckpointAsyncInMailbox(CheckpointMetaData *checkpo
         // TTODO: FlinkSecurityManager::unmonitorUserSystemExitForCurrentThread();
     }
 
-    bool OmniStreamTask::triggerUnfinishedChannelsCheckpoint(CheckpointMetaData *checkpointMetaData,
-        CheckpointOptions *checkpointOptions)
+    bool OmniStreamTask::triggerUnfinishedChannelsCheckpoint(std::shared_ptr<CheckpointMetaData> checkpointMetaData,
+        std::shared_ptr<CheckpointOptions> checkpointOptions)
     {
         std::optional<CheckpointBarrierHandler*> checkpointBarrierHandler = GetCheckpointBarrierHandler();
         // First make sure the Handler is not empty

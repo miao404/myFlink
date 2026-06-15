@@ -65,6 +65,9 @@ namespace omnistream::datastream {
             LOG("-----StreamMap processElement start -----");
             Object *input = reinterpret_cast<Object *>(record->getValue());
             Object *out = this->userFunction->map(input);
+            if (out != nullptr && out == input) {
+                out->getRefCount();
+            }
             record->setValue(out);
             this->output->collect(record);
             input->putRefCount();
@@ -83,7 +86,7 @@ namespace omnistream::datastream {
                 coreId = omnistream::BindCoreManager::GetInstance()->GetOpCore(taskId);
             }
         }
-        void initializeState(StateInitializationContextImpl<K> *context) override
+        void initializeState(StateInitializationContextImpl *context) override
         {
             AbstractStreamOperator<K>::initializeState(context);
         }

@@ -13,37 +13,42 @@
 
 #include <chrono>
 #include <atomic>
+#include <exception>
 #include "TimerService.h"
 #include "core/utils/threads/CompletableFuture.h"
 #include "ScheduledTaskExecutor.h"
 #include "ProcessingTimeServiceUtil.h"
+#include "common.h"
 
 class SystemProcessingTimeService : public omnistream::runtime::TimerService {
 public:
-    SystemProcessingTimeService() : status(0), timeService(1)
-    {
+    SystemProcessingTimeService() : status(0), timeService(1) {
         quiesceCompletedFuture = std::make_shared<omnistream::CompletableFuture>();
     }
 
-    ~SystemProcessingTimeService() = default;
+    ~SystemProcessingTimeService() override {
+        SystemProcessingTimeService::shutdownService();
+    }
 
-    int64_t getCurrentProcessingTime() override
-    {
+    int64_t getCurrentProcessingTime() override {
         return static_cast<int64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::system_clock::now().time_since_epoch()).count());
     }
 
-    bool isTerminated() override { return status.load() == STATUS_ALIVE; };
-    void shutdownService() override { status.store(STATUS_SHUTDOWN); };
+    bool isTerminated() override { return status.load() == STATUS_SHUTDOWN; }
 
-    bool shutdownServiceUninterruptible(long timeoutMs) override
-    {
+    void shutdownService() override {
+        if (status.exchange(STATUS_SHUTDOWN) != STATUS_SHUTDOWN) {
+            timeService.Shutdown();
+        }
+    }
+
+    bool shutdownServiceUninterruptible(long timeoutMs) override {
         // todo: need dev
         return false;
     }
 
-    ScheduledFutureTask* registerTimer(int64_t timestamp, ProcessingTimeCallback *target) override
-    {
+    ScheduledFutureTask* registerTimer(int64_t timestamp, ProcessingTimeCallback *target) override {
         if (status.load() != STATUS_ALIVE) {
             return nullptr;
         }
@@ -54,13 +59,11 @@ public:
     }
 
     ScheduledFutureTask* scheduleWithFixedDelay(ProcessingTimeCallback* callback,
-                                                long initialDelay, long period) override
-    {
+                                                long initialDelay, long period) override {
         return scheduleRepeatedly(callback, initialDelay, period, true);
     }
 
-    omnistream::Runnable* wrapOnTimerCallback(ProcessingTimeCallback* callback, long nextTimestamp, long period)
-    {
+    omnistream::Runnable* wrapOnTimerCallback(ProcessingTimeCallback* callback, long nextTimestamp, long period) {
         return new ScheduledTask(status, callback, nextTimestamp, period);
     }
 private:
@@ -87,8 +90,12 @@ private:
 
             try {
                 callback->OnProcessingTime(nextTimestamp);
+            } catch (const std::exception& e) {
+                LOG("Error: processing timer callback failed, timestamp="
+                    << nextTimestamp << ", error=" << e.what())
             } catch (...) {
-                //  handle exception
+                LOG("Error: processing timer callback failed, timestamp="
+                    << nextTimestamp << ", error=unknown")
             }
 
             nextTimestamp += period;

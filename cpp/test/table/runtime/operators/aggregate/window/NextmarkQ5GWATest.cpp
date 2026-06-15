@@ -1,5 +1,6 @@
 #include <gtest/gtest.h>
 #include <iostream>
+#include <memory>
 #include <nlohmann/json.hpp>
 #include <taskmanager/OmniRuntimeEnvironment.h>
 
@@ -25,6 +26,7 @@ std::string Q5MAXdescription1 = R"DELIM(
 			"localAggregateCalls": [
 				{
 					"name": "COUNT()", "filterArg": -1, "argIndexes": [], "aggregationFunction": "Count1AggFunction",
+					"aggIndex": 0,
 					"consumeRetraction": "false"
 				}
 			],
@@ -35,6 +37,7 @@ std::string Q5MAXdescription1 = R"DELIM(
 			"globalAggregateCalls": [
 				{
 					"name": "COUNT()", "filterArg": -1, "argIndexes": [], "aggregationFunction": "Count1AggFunction",
+					"aggIndex": 0,
 					"consumeRetraction": "false"
 				}
 			],
@@ -42,7 +45,7 @@ std::string Q5MAXdescription1 = R"DELIM(
 				"BIGINT"
 			]
 		},
-		"size": 10000, "sliceEndIndex": 2, "slide": 2000, "generateUpdateBefore": false,
+		"windowSize": 10000, "sliceEndIndex": 2, "windowSlide": 2000, "generateUpdateBefore": false,
 		"outputTypes": [
 			"BIGINT", "BIGINT", "TIMESTAMP_WITHOUT_TIME_ZONE(3)", "TIMESTAMP_WITHOUT_TIME_ZONE(3)"
 		],
@@ -166,7 +169,8 @@ std::string Q5COUNTdescription1 =R"DELIM(
                             "argIndexes": [],
                             "consumeRetraction": "false",
                             "filterArg": -1,
-                            "name": "COUNT()"
+                            "name": "COUNT()",
+							"aggIndex": 0,
                         }
                     ],
                     "indexOfCountStar": 0,
@@ -176,7 +180,8 @@ std::string Q5COUNTdescription1 =R"DELIM(
                             "argIndexes": [],
                             "consumeRetraction": "false",
                             "filterArg": -1,
-                            "name": "COUNT()"
+                            "name": "COUNT()",
+							"aggIndex": 0,
                         }
                     ]
                 },
@@ -196,9 +201,9 @@ std::string Q5COUNTdescription1 =R"DELIM(
                     "TIMESTAMP_WITHOUT_TIME_ZONE(3)",
                     "TIMESTAMP_WITHOUT_TIME_ZONE(3)"
                 ],
-                "size": 10000,
+                "windowSize": 10000,
                 "sliceEndIndex": 2,
-                "slide": 2000,
+                "windowSlide": 2000,
                 "timeAttributeIndex": 2147483647,
                 "timeAttributeType": "TIMESTAMP_WITHOUT_TIME_ZONE(3)",
                 "window": "HOP(size=[10 s], slide=[2 s])"
@@ -361,7 +366,7 @@ omnistream::OperatorConfig opConfig(
         parsedJson["description"]
 );
 auto *output = new BatchOutputTest();
-auto* slicingWindowOperator = dynamic_cast<SlicingWindowOperator<RowData*, int64_t>*>(
+auto* slicingWindowOperator = dynamic_cast<SlicingWindowOperator<std::shared_ptr<RowData>, int64_t>*>(
         StreamOperatorFactory::createOperatorAndCollector(opConfig, output));
     auto env2 = new omnistream::RuntimeEnvironmentV2();
     auto taskInfo = new TaskInformationPOD();
@@ -416,7 +421,7 @@ omnistream::OperatorConfig opConfig(
         parsedJson["operators"][0]["description"]
 );
 auto *output = new BatchOutputTest();
-auto* slicingWindowOperator = dynamic_cast<SlicingWindowOperator<RowData*, int64_t>*>(
+auto* slicingWindowOperator = dynamic_cast<SlicingWindowOperator<std::shared_ptr<RowData>, int64_t>*>(
         StreamOperatorFactory::createOperatorAndCollector(opConfig, output));
     auto env2 = new omnistream::RuntimeEnvironmentV2();
     auto taskInfo = new TaskInformationPOD();
@@ -437,7 +442,8 @@ slicingWindowOperator->open();
 slicingWindowOperator->processBatch(vbatch);
 slicingWindowOperator->ProcessWatermark(new Watermark(INT64_MAX));
 //    BatchOutputTest* batchOutput = dynamic_cast<BatchOutputTest*>(slicingWindowOperator->getOutput());
-//    auto *timer = new TimerHeapInternalTimer<RowData*, int64_t>(-1, new BinaryRowData(0), 1010);
+//    auto *timer = new TimerHeapInternalTimer<std::shared_ptr<RowData>, int64_t>(
+//        -1, std::shared_ptr<RowData>(new BinaryRowData(0)), 1010);
 //    slicingWindowOperator->onTimer(timer);
 
 omnistream::VectorBatch* resultBatch = reinterpret_cast<omnistream::VectorBatch*> (output->getVectorBatch());

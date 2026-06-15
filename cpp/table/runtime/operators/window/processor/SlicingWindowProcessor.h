@@ -8,26 +8,27 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef SLICINGWINDOWPROCESSOR_H
-#define SLICINGWINDOWPROCESSOR_H
+
+#pragma once
 
 #include "table/data/vectorbatch/VectorBatch.h"
 #include "core/typeutils/TypeSerializer.h"
 #include "table/runtime/operators/window/SlicingWindowOperator.h"
-#include "table/runtime/operators/InternalTimerService.h"
-#include "runtime/state/HeapKeyedStateBackend.h"
 #include "streaming/api/operators/Output.h"
-#include "functions/RuntimeContext.h"
 #include "streaming/api/operators/StreamingRuntimeContext.h"
 
-template <typename W>
+template <typename K, typename W>
 class SlicingWindowProcessor {
 public:
     SlicingWindowProcessor() {};
-    virtual void open(AbstractKeyedStateBackend<RowData*> *state, const nlohmann::json& config, StreamingRuntimeContext<RowData*> *runtimeCtx, InternalTimerServiceImpl<RowData*, int64_t>* internalTimerService)  = 0;
+    virtual void open(
+            AbstractKeyedStateBackend<K> *state,
+            const nlohmann::json& config,
+            StreamingRuntimeContext<K> *runtimeCtx,
+            InternalTimerServiceImpl<K, int64_t>* internalTimerService)  = 0;
     virtual void initializeWatermark(int64_t watermark)  = 0;
     virtual bool processBatch(omnistream::VectorBatch* vectorbatch)  = 0;
-    virtual void advanceProgress(StreamOperatorStateHandler<RowData*> *stateHandler, long progress) = 0 ;
+    virtual void advanceProgress(long progress) = 0 ;
     virtual void prepareCheckpoint()  = 0;
     virtual void fireWindow(W window)  = 0;
     virtual void clearWindow(W window)  = 0;
@@ -35,5 +36,3 @@ public:
     virtual TypeSerializer *createWindowSerializer() = 0;
     virtual Output* getOutput() = 0;
 };
-
-#endif

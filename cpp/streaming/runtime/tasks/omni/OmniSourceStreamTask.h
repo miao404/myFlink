@@ -9,16 +9,13 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#ifndef OMNISOURCESTREAMTASK_H
-#define OMNISOURCESTREAMTASK_H
-#include <taskmanager/OmniRuntimeEnvironment.h>
+#pragma once
 
+#include <taskmanager/OmniRuntimeEnvironment.h>
 #include "OmniStreamTask.h"
 #include "streaming/api/operators/StreamSource.h"
 #include "io/network/api/StopMode.h"
 #include <thread>
-#include "OmniAsyncDataOutputToOutput.h"
-#include <limits>
 
 
 namespace omnistream {
@@ -37,32 +34,25 @@ namespace omnistream {
 
     class OmniSourceStreamTask : public OmniStreamTask {
     public:
-        explicit OmniSourceStreamTask(std::shared_ptr<RuntimeEnvironmentV2> &env, int taskType)
-                : OmniStreamTask(env, taskType),  // 使用默认构造函数（IMMEDIATE executor）
-                  lockObject_(new Object()),
-                  sourceRunning_(false) {
-        }
+        OmniSourceStreamTask(std::shared_ptr<RuntimeEnvironmentV2>& env, std::unique_ptr<Object> lockObject, int taskType);
+
+        ~OmniSourceStreamTask() override;
 
         void init() override;
 
         void processInput(MailboxDefaultAction::Controller *controller) override;
 
-        ~OmniSourceStreamTask() override;
         const std::string getName() const override;
         void AdvanceToEndOfEventTime() override;
         void cancel() override;
 
     private:
         FinishingReason finishingReason = FinishingReason::END_OF_DATA;
+
+        std::unique_ptr<Object> lockObject_;
+        std::unique_ptr<std::thread> sourceThread_;
+
         void CompleteProcessing();
         void runSourceInThread();
-
-        // 新增成员
-        Object* lockObject_;  // checkpoint lock对象
-        std::unique_ptr<std::thread> sourceThread_;
-        std::atomic<bool> sourceRunning_{false};
     };
 }
-
-
-#endif // OMNISOURCESTREAMTASK_H

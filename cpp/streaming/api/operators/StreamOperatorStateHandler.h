@@ -13,6 +13,7 @@
 
 #include <string>
 #include <iostream>
+#include <memory>
 #include "runtime/state/AbstractKeyedStateBackend.h"
 #include "StreamOperatorStateContext.h"
 #include "runtime/state/DefaultKeyedStateStore.h"
@@ -82,6 +83,11 @@ public:
         return keyedStateStore;
     };
 
+    OperatorStateBackend *getOperatorStateBackend()
+    {
+        return operatorStateBackend;
+    }
+
     void dispose()
     {
         if (keyedStateBackend != nullptr) {
@@ -114,18 +120,19 @@ public:
     class CheckpointedStreamOperator {
     public:
         virtual void snapshotState(StateSnapshotContextSynchronousImpl *context) {}
-        virtual void initializeState(StateInitializationContextImpl<K> *context) {}
+        virtual void initializeState(StateInitializationContextImpl *context) {}
     };
 
     void initializeOperatorState(CheckpointedStreamOperator *streamOperator)
     {
+        StateInitializationContextImpl *initializationContext = nullptr;
         try {
             // Get restored checkpoint id from context
             std::optional<uint64_t> checkpointId = context->getRestoredCheckpointId();
 
 
             // Create StateInitializationContextImpl with correct template parameter
-            StateInitializationContextImpl<K> *initializationContext = new StateInitializationContextImpl<K>(
+            initializationContext = new StateInitializationContextImpl(
                 checkpointId,
                 this->operatorStateBackend, // access to operator state backend
                 this->keyedStateStore      // access to keyed state store
@@ -133,6 +140,9 @@ public:
             streamOperator->initializeState(initializationContext);
             delete initializationContext; // 释放内存，避免泄漏
         } catch (const std::exception& e) {
+            if (initializationContext) {
+                delete initializationContext; // 释放内存，避免泄漏
+            }
             INFO_RELEASE("Error in initializeOperatorState: " << e.what());
             throw; // 重新抛出异常
         }
@@ -154,9 +164,9 @@ public:
             keyGroupRange = keyedStateBackend->getKeyGroupRange();
         }
 
-        auto snapshotInProgress = new OperatorSnapshotFutures();
+        auto snapshotInProgress = std::make_unique<OperatorSnapshotFutures>();
 
-        auto snapshotContext = new StateSnapshotContextSynchronousImpl(checkpointId,
+        auto snapshotContext = std::make_unique<StateSnapshotContextSynchronousImpl>(checkpointId,
             timestamp,
             checkpointStreamFactory,
             keyGroupRange,
@@ -170,16 +180,12 @@ public:
             timestamp,
             checkpointOptions,
             checkpointStreamFactory,
-            snapshotInProgress,
-            snapshotContext,
+            snapshotInProgress.get(),
+            snapshotContext.get(),
             isUsingCustomRawKeyedState,
             bridge);
 
-        if (snapshotContext) {
-            delete snapshotContext;
-        }
-
-        return snapshotInProgress;
+        return snapshotInProgress.release();
     }
 
     void snapshotState(
@@ -211,7 +217,10 @@ public:
                         THROW_LOGIC_EXCEPTION("Attempting to snapshot timers to raw keyed state, but this operator has custom raw keyed state to write.");
                     }
 
-                    timeServiceManager->snapshotToRawKeyedState(snapshotContext->getRawKeyedOperatorStateOutput(), operatorName);
+                    timeServiceManager->snapshotToRawKeyedState(
+                        snapshotContext->getRawKeyedOperatorStateOutput(),
+                        operatorName,
+                        checkpointId);
                 }
             }
             INFO_RELEASE("savepoint: StreamOperatorStateHandler::snapshotState streamOperator type=" << typeid(*streamOperator).name());
