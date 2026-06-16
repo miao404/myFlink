@@ -243,7 +243,22 @@ public abstract class BufferWritingResultPartition extends ResultPartition {
         checkState(!isReleased(), "Partition released.");
 
         ResultSubpartition subpartition = subpartitions[subpartitionIndex];
-        ResultSubpartitionView readView = subpartition.createReadView(availabilityListener);
+        LOG.info("[CREATE_SUBPARTITION_VIEW_BEGIN] partitionId={}, subpartitionIndex={}, nativeTaskRef={}, "
+                + "listenerClass={}, listenerId={}",
+                getPartitionId(), subpartitionIndex, getNativeTaskRef(),
+                availabilityListener.getClass().getSimpleName(),
+                System.identityHashCode(availabilityListener));
+        ResultSubpartitionView readView;
+        try {
+            readView = subpartition.createReadView(availabilityListener);
+        } catch (IllegalStateException e) {
+            LOG.error("[CREATE_SUBPARTITION_VIEW_DUPLICATE] partitionId={}, subpartitionIndex={}, "
+                    + "nativeTaskRef={}, listenerClass={}, listenerId={}, error={}",
+                    getPartitionId(), subpartitionIndex, getNativeTaskRef(),
+                    availabilityListener.getClass().getSimpleName(),
+                    System.identityHashCode(availabilityListener), e.getMessage());
+            throw e;
+        }
         if(isNative()){
             // bind nativeTaskRef to availabilityListener if it is an instance of OmniCreditBasedSequenceNumberingViewReader
             if (availabilityListener instanceof OmniCreditBasedSequenceNumberingViewReader){
