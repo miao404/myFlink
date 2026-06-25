@@ -248,7 +248,8 @@ void StreamCorrelateOperator::processBatch(StreamRecord* input)
                         if (src->IsNull(allInputRowIndices[i])) {
                             dst->SetNull(i);
                         } else {
-                            dst->SetValue(i, src->GetValue(allInputRowIndices[i]));
+                            std::string_view sv = src->GetValue(allInputRowIndices[i]);
+                            dst->SetValue(i, sv);
                         }
                     }
                     outputBatch->Append(dst);
