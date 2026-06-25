@@ -11,7 +11,6 @@
 
 #include "StreamCorrelateOperator.h"
 #include "NativeTableFunctionFactory.h"
-#include <vector/vector_helper.h>
 
 StreamCorrelateOperator::StreamCorrelateOperator(const nlohmann::json& description, Output* output)
     : description_(description)
@@ -117,12 +116,117 @@ void StreamCorrelateOperator::processBatch(StreamRecord* input)
     // Create output VectorBatch
     auto* outputBatch = new omnistream::VectorBatch(totalOutputRows);
 
-    // Copy and expand input columns
+    // Copy and expand input columns with type-aware handling
     for (int col = 0; col < inputColCount; col++) {
-        omniruntime::vec::BaseVector* expandedVec =
-            omniruntime::vec::VectorHelper::CopyPositionsVector(
-                batch->Get(col), positions.data(), 0, totalOutputRows);
-        outputBatch->Append(expandedVec);
+        auto* srcVec = batch->Get(col);
+        auto typeId = srcVec->GetTypeId();
+        switch (typeId) {
+            case omniruntime::type::DataTypeId::OMNI_INT: {
+                auto* src = reinterpret_cast<omniruntime::vec::Vector<int32_t>*>(srcVec);
+                auto* dst = new omniruntime::vec::Vector<int32_t>(totalOutputRows);
+                for (int i = 0; i < totalOutputRows; i++) {
+                    if (src->IsNull(positions[i])) {
+                        dst->SetNull(i);
+                    } else {
+                        dst->SetValue(i, src->GetValue(positions[i]));
+                    }
+                }
+                outputBatch->Append(dst);
+                break;
+            }
+            case omniruntime::type::DataTypeId::OMNI_LONG:
+            case omniruntime::type::DataTypeId::OMNI_TIMESTAMP:
+            case omniruntime::type::DataTypeId::OMNI_TIMESTAMP_WITHOUT_TIME_ZONE:
+            case omniruntime::type::DataTypeId::OMNI_TIMESTAMP_WITH_LOCAL_TIME_ZONE: {
+                auto* src = reinterpret_cast<omniruntime::vec::Vector<int64_t>*>(srcVec);
+                auto* dst = new omniruntime::vec::Vector<int64_t>(totalOutputRows);
+                for (int i = 0; i < totalOutputRows; i++) {
+                    if (src->IsNull(positions[i])) {
+                        dst->SetNull(i);
+                    } else {
+                        dst->SetValue(i, src->GetValue(positions[i]));
+                    }
+                }
+                outputBatch->Append(dst);
+                break;
+            }
+            case omniruntime::type::DataTypeId::OMNI_BOOLEAN: {
+                auto* src = reinterpret_cast<omniruntime::vec::Vector<bool>*>(srcVec);
+                auto* dst = new omniruntime::vec::Vector<bool>(totalOutputRows);
+                for (int i = 0; i < totalOutputRows; i++) {
+                    if (src->IsNull(positions[i])) {
+                        dst->SetNull(i);
+                    } else {
+                        dst->SetValue(i, src->GetValue(positions[i]));
+                    }
+                }
+                outputBatch->Append(dst);
+                break;
+            }
+            case omniruntime::type::DataTypeId::OMNI_DOUBLE: {
+                auto* src = reinterpret_cast<omniruntime::vec::Vector<double>*>(srcVec);
+                auto* dst = new omniruntime::vec::Vector<double>(totalOutputRows);
+                for (int i = 0; i < totalOutputRows; i++) {
+                    if (src->IsNull(positions[i])) {
+                        dst->SetNull(i);
+                    } else {
+                        dst->SetValue(i, src->GetValue(positions[i]));
+                    }
+                }
+                outputBatch->Append(dst);
+                break;
+            }
+            case omniruntime::type::DataTypeId::OMNI_SHORT: {
+                auto* src = reinterpret_cast<omniruntime::vec::Vector<int16_t>*>(srcVec);
+                auto* dst = new omniruntime::vec::Vector<int16_t>(totalOutputRows);
+                for (int i = 0; i < totalOutputRows; i++) {
+                    if (src->IsNull(positions[i])) {
+                        dst->SetNull(i);
+                    } else {
+                        dst->SetValue(i, src->GetValue(positions[i]));
+                    }
+                }
+                outputBatch->Append(dst);
+                break;
+            }
+            case omniruntime::type::DataTypeId::OMNI_DECIMAL128: {
+                auto* src = reinterpret_cast<omniruntime::vec::Vector<omniruntime::type::Decimal128>*>(srcVec);
+                auto* dst = new omniruntime::vec::Vector<omniruntime::type::Decimal128>(totalOutputRows);
+                for (int i = 0; i < totalOutputRows; i++) {
+                    if (src->IsNull(positions[i])) {
+                        dst->SetNull(i);
+                    } else {
+                        dst->SetValue(i, src->GetValue(positions[i]));
+                    }
+                }
+                outputBatch->Append(dst);
+                break;
+            }
+            case omniruntime::type::DataTypeId::OMNI_CHAR:
+            case omniruntime::type::DataTypeId::OMNI_VARCHAR: {
+                if (srcVec->GetEncoding() == omniruntime::vec::OMNI_FLAT) {
+                    auto* src = reinterpret_cast<omniruntime::vec::Vector<
+                        omniruntime::vec::LargeStringContainer<std::string_view>>*>(srcVec);
+                    auto* dst = new omniruntime::vec::Vector<
+                        omniruntime::vec::LargeStringContainer<std::string_view>>(totalOutputRows);
+                    for (int i = 0; i < totalOutputRows; i++) {
+                        if (src->IsNull(positions[i])) {
+                            dst->SetNull(i);
+                        } else {
+                            dst->SetValue(i, src->GetValue(positions[i]));
+                        }
+                    }
+                    outputBatch->Append(dst);
+                } else {
+                    outputBatch->Append(omnistream::VectorBatch::CopyPositionsAndFlatten(
+                        srcVec, positions.data(), 0, totalOutputRows));
+                }
+                break;
+            }
+            default:
+                THROW_LOGIC_EXCEPTION("Unsupported data type in StreamCorrelateOperator: "
+                    + std::to_string(typeId));
+        }
     }
 
     // Create UDTF result column (VARCHAR)
