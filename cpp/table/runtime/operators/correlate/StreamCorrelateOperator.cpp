@@ -10,32 +10,19 @@
  */
 
 #include "StreamCorrelateOperator.h"
-#include "NativeTableFunctionFactory.h"
+#include <nlohmann/json.hpp>
 
-StreamCorrelateOperator::StreamCorrelateOperator(const nlohmann::json& description, Output* output)
-    : description_(description)
+using namespace omniruntime::type;
+using namespace omniruntime::vec;
+using VarcharVector = Vector<LargeStringContainer<std::string_view>>;
+
+StreamCorrelateOperator::StreamCorrelateOperator(
+        const nlohmann::json& description, Output* output)
+        : description_(description)
 {
     this->setOutput(output);
-
-    functionClass_ = description["functionClass"].get<std::string>();
-    std::string joinType = description["joinType"].get<std::string>();
-    isLeftJoin_ = (joinType == "LeftOuterJoin" || joinType == "LEFT");
-
-    if (description.contains("functionArgIndices")) {
-        for (const auto& idx : description["functionArgIndices"]) {
-            argIndices_.push_back(idx.get<int>());
-        }
-    }
-
-    tableFunction_ = NativeTableFunctionFactory::create(functionClass_);
-    if (!tableFunction_) {
-        THROW_LOGIC_EXCEPTION("Unsupported table function class: " + functionClass_);
-    }
-
-    timestampedCollector_ = new TimestampedCollector(output);
-
-    LOG("StreamCorrelateOperator created, functionClass=" << functionClass_
-        << ", joinType=" << joinType << ", isLeftJoin=" << isLeftJoin_)
+    parseDescription(description);
+    LOG("StreamCorrelateOperator description: " << description.dump())
 }
 
 StreamCorrelateOperator::~StreamCorrelateOperator()
@@ -45,181 +32,226 @@ StreamCorrelateOperator::~StreamCorrelateOperator()
 
 void StreamCorrelateOperator::open()
 {
+    parseDescription(description_);
+    timestampedCollector_ = new TimestampedCollector(this->output);
 }
 
 void StreamCorrelateOperator::close()
 {
+    if (timestampedCollector_) {
+        timestampedCollector_->close();
+    }
+}
+
+void StreamCorrelateOperator::parseDescription(const nlohmann::json& desc)
+{
+    functionName_ = desc.at("functionName").get<std::string>();
+    functionClass_ =  desc.at("functionClass").get<std::string>();
+    joinType_ = desc.at("joinType").get<std::string>();
+    isLeftJoin_ = (joinType_ == "LeftOuterJoin");
+
+    functionArgIndices_ = desc.at("functionArgIndices").get<std::vector<int>>();
+    inputTypes_ = desc.at("inputTypes").get<std::vector<std::string>>();
+    outputTypes_ = desc.at("outputTypes").get<std::vector<std::string>>();
+    functionResultTypes_ = desc.at("functionResultTypes").get<std::vector<std::string>>();
+
+    inputColumnCount_ = static_cast<int>(inputTypes_.size());
+    outputColumnCount_ = static_cast<int>(outputTypes_.size());
+
+    for (const auto& typeStr : inputTypes_) {
+        inputTypeIds_.push_back(LogicalType::flinkTypeToOmniTypeId(typeStr));
+    }
+    tableFunction_ = NativeTableFunctionFactory::create(functionName_);
+    if (!tableFunction_) {
+        THROW_LOGIC_EXCEPTION("Unsupported table function class: " + functionClass_ + ", function name: " + functionName_);
+    }
+
+    INFO_RELEASE("StreamCorrelateOperator parsed: functionName=" << functionName_
+                                                        << ", joinType=" << joinType_
+                                                        << ", argIndices=" << functionArgIndices_.size()
+                                                        << ", inputCols=" << inputColumnCount_
+                                                        << ", outputCols=" << outputColumnCount_
+                                                        << ", isLeftJoin=" << isLeftJoin_)
 }
 
 void StreamCorrelateOperator::processBatch(StreamRecord* input)
 {
-    auto* batch = reinterpret_cast<omnistream::VectorBatch*>(input->getValue());
-    int32_t rowCount = batch->GetRowCount();
-    int32_t inputColCount = batch->GetVectorCount();
+    auto* inputBatch = reinterpret_cast<omnistream::VectorBatch*>(input->getValue());
+    int inputRowCount = inputBatch->GetRowCount();
 
-    if (argIndices_.empty() || rowCount == 0) {
-        delete batch;
+    if (inputRowCount == 0) {
+        delete inputBatch;
+        delete input;
         return;
     }
 
-    int argCol = argIndices_[0];
-
-    // Collect UDTF results and build expansion indices
+    // ========== Step 1: Call UDTF for each row, collect results ==========
     std::vector<int> inputRowIndices;
     std::vector<std::string> udtfResults;
-    std::vector<int> nullPaddedRows;
+    std::vector<bool> hasOutput(inputRowCount, false);
 
-    auto* argVector = reinterpret_cast<omniruntime::vec::Vector<
-        omniruntime::vec::LargeStringContainer<std::string_view>>*>(batch->Get(argCol));
+    int argColIndex = functionArgIndices_[0];
+    auto* argVec = inputBatch->Get(argColIndex);
 
-    for (int32_t row = 0; row < rowCount; row++) {
-        if (argVector->IsNull(row)) {
-            if (isLeftJoin_) {
-                nullPaddedRows.push_back(row);
+    for (int row = 0; row < inputRowCount; row++) {
+        std::string argValue;
+        if (!argVec->IsNull(row)) {
+            if (argVec->GetEncoding() == omniruntime::vec::OMNI_FLAT) {
+                auto* castedVec = reinterpret_cast<VarcharVector*>(argVec);
+                std::string_view sv = castedVec->GetValue(row);
+                argValue = std::string(sv.data(), sv.size());
+            } else {
+                using DictVarcharVec = Vector<DictionaryContainer<
+                        std::string_view, LargeStringContainer>>;
+                auto* castedVec = reinterpret_cast<DictVarcharVec*>(argVec);
+                std::string_view sv = castedVec->GetValue(row);
+                argValue = std::string(sv.data(), sv.size());
             }
-            continue;
         }
-        std::string_view sv = argVector->GetValue(row);
-        std::string argValue(sv.data(), sv.size());
 
         std::vector<std::string> results = tableFunction_->eval(argValue);
 
-        if (results.empty()) {
-            if (isLeftJoin_) {
-                nullPaddedRows.push_back(row);
+        if (!results.empty()) {
+            hasOutput[row] = true;
+            for (auto& r : results) {
+                inputRowIndices.push_back(row);
+                udtfResults.push_back(std::move(r));
             }
-            continue;
-        }
-
-        for (const auto& result : results) {
-            inputRowIndices.push_back(row);
-            udtfResults.push_back(result);
         }
     }
 
-    int totalOutputRows = static_cast<int>(inputRowIndices.size() + nullPaddedRows.size());
+    // ========== Step 2: Handle LEFT JOIN (null-padded rows) ==========
+    std::vector<int> leftNullRows;
+    if (isLeftJoin_) {
+        for (int row = 0; row < inputRowCount; row++) {
+            if (!hasOutput[row]) {
+                leftNullRows.push_back(row);
+            }
+        }
+    }
+
+    int totalOutputRows = static_cast<int>(inputRowIndices.size())
+                          + static_cast<int>(leftNullRows.size());
+
     if (totalOutputRows == 0) {
-        delete batch;
+        delete inputBatch;
+        delete input;
         return;
     }
 
-    // Build position array for expanding input rows
-    std::vector<int> positions;
-    positions.reserve(totalOutputRows);
-    for (int idx : inputRowIndices) {
-        positions.push_back(idx);
-    }
-    for (int idx : nullPaddedRows) {
-        positions.push_back(idx);
-    }
-
-    // Create output VectorBatch
+    // ========== Step 3: Build output VectorBatch ==========
     auto* outputBatch = new omnistream::VectorBatch(totalOutputRows);
 
-    // Copy and expand input columns with type-aware handling
-    for (int col = 0; col < inputColCount; col++) {
-        auto* srcVec = batch->Get(col);
-        auto typeId = srcVec->GetTypeId();
+    // --- 3a. Copy input columns (expanded by row indices) ---
+    std::vector<int> allInputRowIndices;
+    allInputRowIndices.reserve(totalOutputRows);
+    allInputRowIndices.insert(allInputRowIndices.end(),
+                              inputRowIndices.begin(), inputRowIndices.end());
+    allInputRowIndices.insert(allInputRowIndices.end(),
+                              leftNullRows.begin(), leftNullRows.end());
+
+    for (int col = 0; col < inputColumnCount_; col++) {
+        BaseVector* srcVec = inputBatch->Get(col);
+        DataTypeId typeId = inputTypeIds_[col];
+
         switch (typeId) {
-            case omniruntime::type::DataTypeId::OMNI_INT: {
-                auto* src = reinterpret_cast<omniruntime::vec::Vector<int32_t>*>(srcVec);
-                auto* dst = new omniruntime::vec::Vector<int32_t>(totalOutputRows);
+            case DataTypeId::OMNI_INT: {
+                auto* src = reinterpret_cast<Vector<int32_t>*>(srcVec);
+                auto* dst = new Vector<int32_t>(totalOutputRows);
                 for (int i = 0; i < totalOutputRows; i++) {
-                    if (src->IsNull(positions[i])) {
+                    if (src->IsNull(allInputRowIndices[i])) {
                         dst->SetNull(i);
                     } else {
-                        dst->SetValue(i, src->GetValue(positions[i]));
+                        dst->SetValue(i, src->GetValue(allInputRowIndices[i]));
                     }
                 }
                 outputBatch->Append(dst);
                 break;
             }
-            case omniruntime::type::DataTypeId::OMNI_LONG:
-            case omniruntime::type::DataTypeId::OMNI_TIMESTAMP:
-            case omniruntime::type::DataTypeId::OMNI_TIMESTAMP_WITHOUT_TIME_ZONE:
-            case omniruntime::type::DataTypeId::OMNI_TIMESTAMP_WITH_LOCAL_TIME_ZONE: {
-                auto* src = reinterpret_cast<omniruntime::vec::Vector<int64_t>*>(srcVec);
-                auto* dst = new omniruntime::vec::Vector<int64_t>(totalOutputRows);
+            case DataTypeId::OMNI_LONG:
+            case DataTypeId::OMNI_TIMESTAMP:
+            case DataTypeId::OMNI_TIMESTAMP_WITHOUT_TIME_ZONE:
+            case DataTypeId::OMNI_TIMESTAMP_WITH_LOCAL_TIME_ZONE: {
+                auto* src = reinterpret_cast<Vector<int64_t>*>(srcVec);
+                auto* dst = new Vector<int64_t>(totalOutputRows);
                 for (int i = 0; i < totalOutputRows; i++) {
-                    if (src->IsNull(positions[i])) {
+                    if (src->IsNull(allInputRowIndices[i])) {
                         dst->SetNull(i);
                     } else {
-                        dst->SetValue(i, src->GetValue(positions[i]));
+                        dst->SetValue(i, src->GetValue(allInputRowIndices[i]));
                     }
                 }
                 outputBatch->Append(dst);
                 break;
             }
-            case omniruntime::type::DataTypeId::OMNI_BOOLEAN: {
-                auto* src = reinterpret_cast<omniruntime::vec::Vector<bool>*>(srcVec);
-                auto* dst = new omniruntime::vec::Vector<bool>(totalOutputRows);
+            case DataTypeId::OMNI_DOUBLE: {
+                auto* src = reinterpret_cast<Vector<double>*>(srcVec);
+                auto* dst = new Vector<double>(totalOutputRows);
                 for (int i = 0; i < totalOutputRows; i++) {
-                    if (src->IsNull(positions[i])) {
+                    if (src->IsNull(allInputRowIndices[i])) {
                         dst->SetNull(i);
                     } else {
-                        dst->SetValue(i, src->GetValue(positions[i]));
+                        dst->SetValue(i, src->GetValue(allInputRowIndices[i]));
                     }
                 }
                 outputBatch->Append(dst);
                 break;
             }
-            case omniruntime::type::DataTypeId::OMNI_DOUBLE: {
-                auto* src = reinterpret_cast<omniruntime::vec::Vector<double>*>(srcVec);
-                auto* dst = new omniruntime::vec::Vector<double>(totalOutputRows);
+            case DataTypeId::OMNI_BOOLEAN: {
+                auto* src = reinterpret_cast<Vector<bool>*>(srcVec);
+                auto* dst = new Vector<bool>(totalOutputRows);
                 for (int i = 0; i < totalOutputRows; i++) {
-                    if (src->IsNull(positions[i])) {
+                    if (src->IsNull(allInputRowIndices[i])) {
                         dst->SetNull(i);
                     } else {
-                        dst->SetValue(i, src->GetValue(positions[i]));
+                        dst->SetValue(i, src->GetValue(allInputRowIndices[i]));
                     }
                 }
                 outputBatch->Append(dst);
                 break;
             }
-            case omniruntime::type::DataTypeId::OMNI_SHORT: {
-                auto* src = reinterpret_cast<omniruntime::vec::Vector<int16_t>*>(srcVec);
-                auto* dst = new omniruntime::vec::Vector<int16_t>(totalOutputRows);
+            case DataTypeId::OMNI_SHORT: {
+                auto* src = reinterpret_cast<Vector<int16_t>*>(srcVec);
+                auto* dst = new Vector<int16_t>(totalOutputRows);
                 for (int i = 0; i < totalOutputRows; i++) {
-                    if (src->IsNull(positions[i])) {
+                    if (src->IsNull(allInputRowIndices[i])) {
                         dst->SetNull(i);
                     } else {
-                        dst->SetValue(i, src->GetValue(positions[i]));
+                        dst->SetValue(i, src->GetValue(allInputRowIndices[i]));
                     }
                 }
                 outputBatch->Append(dst);
                 break;
             }
-            case omniruntime::type::DataTypeId::OMNI_DECIMAL128: {
-                auto* src = reinterpret_cast<omniruntime::vec::Vector<omniruntime::type::Decimal128>*>(srcVec);
-                auto* dst = new omniruntime::vec::Vector<omniruntime::type::Decimal128>(totalOutputRows);
+            case DataTypeId::OMNI_DECIMAL128: {
+                auto* src = reinterpret_cast<Vector<Decimal128>*>(srcVec);
+                auto* dst = new Vector<Decimal128>(totalOutputRows);
                 for (int i = 0; i < totalOutputRows; i++) {
-                    if (src->IsNull(positions[i])) {
+                    if (src->IsNull(allInputRowIndices[i])) {
                         dst->SetNull(i);
                     } else {
-                        dst->SetValue(i, src->GetValue(positions[i]));
+                        dst->SetValue(i, src->GetValue(allInputRowIndices[i]));
                     }
                 }
                 outputBatch->Append(dst);
                 break;
             }
-            case omniruntime::type::DataTypeId::OMNI_CHAR:
-            case omniruntime::type::DataTypeId::OMNI_VARCHAR: {
-                if (srcVec->GetEncoding() == omniruntime::vec::OMNI_FLAT) {
-                    auto* src = reinterpret_cast<omniruntime::vec::Vector<
-                        omniruntime::vec::LargeStringContainer<std::string_view>>*>(srcVec);
-                    auto* dst = new omniruntime::vec::Vector<
-                        omniruntime::vec::LargeStringContainer<std::string_view>>(totalOutputRows);
+            case DataTypeId::OMNI_CHAR:
+            case DataTypeId::OMNI_VARCHAR: {
+                if (srcVec->GetEncoding() == omniruntime::vec::OMNI_DICTIONARY) {
+                    outputBatch->Append(omnistream::VectorBatch::CopyPositionsAndFlatten(
+                            srcVec, allInputRowIndices.data(), 0, totalOutputRows));
+                } else {
+                    auto* src = reinterpret_cast<VarcharVector*>(srcVec);
+                    auto* dst = new VarcharVector(totalOutputRows);
                     for (int i = 0; i < totalOutputRows; i++) {
-                        if (src->IsNull(positions[i])) {
+                        if (src->IsNull(allInputRowIndices[i])) {
                             dst->SetNull(i);
                         } else {
-                            dst->SetValue(i, src->GetValue(positions[i]));
+                            dst->SetValue(i, src->GetValue(allInputRowIndices[i]));
                         }
                     }
                     outputBatch->Append(dst);
-                } else {
-                    outputBatch->Append(omnistream::VectorBatch::CopyPositionsAndFlatten(
-                        srcVec, positions.data(), 0, totalOutputRows));
                 }
                 break;
             }
@@ -229,27 +261,36 @@ void StreamCorrelateOperator::processBatch(StreamRecord* input)
         }
     }
 
-    // Create UDTF result column (VARCHAR)
-    int resultCount = static_cast<int>(udtfResults.size());
-    int nullCount = static_cast<int>(nullPaddedRows.size());
+    // --- 3b. Build UDTF output columns ---
+    int udtfResultCount = static_cast<int>(functionResultTypes_.size());
+    for (int udtfCol = 0; udtfCol < udtfResultCount; udtfCol++) {
+        auto* vec = new VarcharVector(totalOutputRows);
 
-    auto* resultVector = new omniruntime::vec::Vector<
-        omniruntime::vec::LargeStringContainer<std::string_view>>(totalOutputRows);
-    for (int i = 0; i < resultCount; i++) {
-        resultVector->SetValue(i, std::string_view(udtfResults[i]));
-    }
-    for (int i = 0; i < nullCount; i++) {
-        resultVector->SetNull(resultCount + i);
-    }
-    outputBatch->Append(resultVector);
+        int normalRows = static_cast<int>(udtfResults.size());
+        for (int i = 0; i < normalRows; i++) {
+            std::string_view sv(udtfResults[i].data(), udtfResults[i].size());
+            vec->SetValue(i, sv);
+        }
 
-    // Copy timestamps and rowKinds
+        for (int i = normalRows; i < totalOutputRows; i++) {
+            vec->SetNull(i);
+        }
+
+        outputBatch->Append(vec);
+    }
+
+    // --- 3c. Set timestamp and RowKind ---
+    auto* oldTimestamps = inputBatch->getTimestamps();
+    auto* oldRowKinds = inputBatch->getRowKinds();
     for (int i = 0; i < totalOutputRows; i++) {
-        outputBatch->setTimestamp(i, batch->getTimestamp(positions[i]));
-        outputBatch->setRowKind(i, batch->getRowKind(positions[i]));
+        int srcRow = allInputRowIndices[i];
+        outputBatch->setTimestamp(i, oldTimestamps[srcRow]);
+        outputBatch->setRowKind(i, oldRowKinds[srcRow]);
     }
 
-    delete batch;
+    // ========== Step 4: Output and cleanup ==========
+    delete inputBatch;
+    delete input;
 
     timestampedCollector_->collect(outputBatch);
 }

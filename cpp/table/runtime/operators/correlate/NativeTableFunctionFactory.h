@@ -18,7 +18,7 @@
 
 class NativeTableFunctionFactory {
 public:
-    static std::shared_ptr<NativeTableFunction> create(const std::string& functionClass);
+    static std::shared_ptr<NativeTableFunction> create(const std::string& functionIdentifier);
 };
 
 #endif // FLINK_TNEL_NATIVETABLEFUNCTIONFACTORY_H

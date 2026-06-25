@@ -22,7 +22,9 @@
 #include "OneInputStreamOperator.h"
 #include "TimestampedCollector.h"
 #include "table/data/vectorbatch/VectorBatch.h"
+#include "table/types/logical/LogicalType.h"
 #include "NativeTableFunction.h"
+#include "NativeTableFunctionFactory.h"
 
 class StreamCorrelateOperator : public OneInputStreamOperator, public AbstractStreamOperator<int> {
 public:
@@ -69,12 +71,22 @@ public:
     }
 
 private:
+    void parseDescription(const nlohmann::json& desc);
+
     std::shared_ptr<NativeTableFunction> tableFunction_;
+    std::string functionName_;
     std::string functionClass_;
-    bool isLeftJoin_;
-    std::vector<int> argIndices_;
+    std::string joinType_;
+    bool isLeftJoin_ = false;
+    std::vector<int> functionArgIndices_;
+    std::vector<std::string> inputTypes_;
+    std::vector<std::string> outputTypes_;
+    std::vector<std::string> functionResultTypes_;
+    std::vector<omniruntime::type::DataTypeId> inputTypeIds_;
+    int inputColumnCount_ = 0;
+    int outputColumnCount_ = 0;
     nlohmann::json description_;
-    TimestampedCollector* timestampedCollector_;
+    TimestampedCollector* timestampedCollector_ = nullptr;
 };
 
 #endif // FLINK_TNEL_STREAMCORRELATEOPERATOR_H

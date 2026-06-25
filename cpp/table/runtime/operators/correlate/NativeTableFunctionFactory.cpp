@@ -12,9 +12,13 @@
 #include "NativeTableFunctionFactory.h"
 #include "JsonSplitFunction.h"
 
-std::shared_ptr<NativeTableFunction> NativeTableFunctionFactory::create(const std::string& functionClass)
+std::shared_ptr<NativeTableFunction> NativeTableFunctionFactory::create(const std::string& functionIdentifier)
 {
-    if (functionClass == "com.ctrip.ops.rtp.flink.example.sql.udf.tablefunction.JsonSplit") {
+    if (functionIdentifier == "com.ctrip.ops.rtp.flink.example.sql.udf.tablefunction.JsonSplit"
+        || functionIdentifier == "org.example.sql.JsonSplit"
+        || functionIdentifier == "JsonSplit"
+        || functionIdentifier == "jsontest"
+        || functionIdentifier == "jsonsplit") {
         return std::make_shared<JsonSplitFunction>();
     }
     return nullptr;
