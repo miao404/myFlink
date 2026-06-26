@@ -47,10 +47,14 @@ import org.apache.flink.runtime.state.metainfo.StateMetaInfoSnapshot;
 import org.apache.flink.runtime.state.StreamCompressionDecorator;
 import org.apache.flink.runtime.state.SnappyStreamCompressionDecorator;
 import org.apache.flink.runtime.state.UncompressedStreamCompressionDecorator;
+import org.apache.flink.runtime.state.OperatorStateHandle;
 import org.apache.flink.runtime.state.OperatorStateHandle.Mode;
 import org.apache.flink.runtime.state.OperatorStateHandle.StateMetaInfo;
 import org.apache.flink.runtime.state.OperatorStreamStateHandle;
 import org.apache.flink.runtime.state.OperatorBackendSerializationProxy;
+import org.apache.flink.runtime.state.PartitionableListState;
+import org.apache.flink.runtime.state.BackendWritableBroadcastState;
+import org.apache.flink.runtime.state.OperatorStateRestoreOperation;
 import org.apache.flink.runtime.taskmanager.RuntimeEnvironment;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.JsonNode;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.type.TypeReference;
@@ -305,7 +309,6 @@ public class OmniTaskWrapper {
 
     public void writeSavepointMetadata(CheckpointStreamWithResultProvider provider, String stateMetaInfoSnapshotsJson) throws Exception {
         try {
-            LOG.debug("method : writeSavepointMetadata -> stateMetaInfoSnapshotsJson : {}", stateMetaInfoSnapshotsJson);
             List<Map<String, Object>> stateMetaInfoMaps =
                     OBJECT_MAPPER.readValue(stateMetaInfoSnapshotsJson, new TypeReference<List<Map<String, Object>>>() {
                     });
@@ -371,8 +374,6 @@ public class OmniTaskWrapper {
                                       String operatorStateMetaInfoSnapshotsJson,
                                       String broadcastStateMetaInfoSnapshotsJson) throws IOException {
         try {
-            LOG.debug("method : writeOperatorMetaData -> operatorStateMetaInfoSnapshotsJson : {}", operatorStateMetaInfoSnapshotsJson);
-            LOG.debug("method : writeOperatorMetaData -> broadcastStateMetaInfoSnapshotsJson : {}", broadcastStateMetaInfoSnapshotsJson);
             List<Map<String, Object>> operatorStateMetaInfoMapList = JsonHelper.fromJson(operatorStateMetaInfoSnapshotsJson, new TypeReference<List<Map<String, Object>>>() {
             });
             List<Map<String, Object>> broadcastStateMetaInfoMapList = JsonHelper.fromJson(broadcastStateMetaInfoSnapshotsJson, new TypeReference<List<Map<String, Object>>>() {
@@ -566,72 +567,31 @@ public class OmniTaskWrapper {
         }
     }
 
-    private static JsonNode getFirstPresent(JsonNode rootNode, String... fieldNames) {
-        if (rootNode == null || rootNode.isNull()) {
-            return null;
-        }
-        for (String fieldName : fieldNames) {
-            JsonNode node = rootNode.get(fieldName);
-            if (node != null && !node.isNull()) {
-                return node;
-            }
-        }
-        return null;
-    }
-
-    private static JsonNode unwrapTypedArray(JsonNode node) {
-        if (node != null && node.isArray() && node.size() == 2 && node.get(0).isTextual()
-                && node.get(1).isArray()) {
-            return node.get(1);
-        }
-        return node;
-    }
-
     private OperatorStreamStateHandle deserializeOperatorStreamStateHandle(String metaStateHandleStr) {
         try {
             JsonNode rootNode = OBJECT_MAPPER.readTree(metaStateHandleStr);
             
-            JsonNode delegateNode = getFirstPresent(
-                    rootNode, "metaDataState", "delegateStateHandle", "streamStateHandle");
-            if (delegateNode == null) {
-                throw new IOException(
-                        "OperatorStreamStateHandle missing metaDataState/delegateStateHandle/streamStateHandle.");
-            }
-            StreamStateHandle metaDataState = TaskStateSnapshotDeser.parseStreamStateHandle(delegateNode);
-            if (metaDataState == null) {
-                throw new IOException("OperatorStreamStateHandle delegate parsed to null.");
-            }
+            StreamStateHandle metaDataState = TaskStateSnapshotDeser.parseStreamStateHandle(rootNode.get("metaDataState"));
             JsonNode partitionOffsetsNode = rootNode.get("stateNameToPartitionOffsets");
             
             Map<String, StateMetaInfo> stateMap = new HashMap<>();
-
-            if (partitionOffsetsNode != null && partitionOffsetsNode.isObject()) {
-                Iterator<String> fieldNames = partitionOffsetsNode.fieldNames();
-                while (fieldNames.hasNext()) {
-                    String stateName = fieldNames.next();
-                    if ("@class".equals(stateName)) {
-                        continue;
-                    }
-                    JsonNode stateNode = partitionOffsetsNode.get(stateName);
-                    if (stateNode == null || !stateNode.isObject()) {
-                        continue;
-                    }
-                    JsonNode offsetsNode = unwrapTypedArray(stateNode.get("offsets"));
-                    JsonNode distributionModeNode = stateNode.get("distributionMode");
-                    if (offsetsNode != null && offsetsNode.isArray() && distributionModeNode != null
-                            && distributionModeNode.isTextual()) {
-                        int size = offsetsNode.size();
-                        long[] offsets = new long[size];
-                        for (int i = 0; i < size; i++) {
-                            JsonNode offsetNode = offsetsNode.get(i);
-                            if (offsetNode.isNumber()) {
-                                offsets[i] = offsetNode.asLong();
-                            }
+            
+            Iterator<String> fieldNames = partitionOffsetsNode.fieldNames();
+            while (fieldNames.hasNext()) {
+                String stateName = fieldNames.next();
+                JsonNode stateNode = partitionOffsetsNode.get(stateName);
+                JsonNode offsetsNode = stateNode.get("offsets");
+                if (offsetsNode != null && offsetsNode.isArray()) {
+                    int size = offsetsNode.size();
+                    long[] offsets = new long[size];
+                    for (int i = 0; i < size; i++) {
+                        JsonNode offsetNode = offsetsNode.get(i);
+                        if (offsetNode.isNumber()) {
+                            offsets[i] = offsetNode.asLong();
                         }
-                        StateMetaInfo metaInfo = new StateMetaInfo(
-                                offsets, Mode.valueOf(distributionModeNode.asText()));
-                        stateMap.put(stateName, metaInfo);
                     }
+                    StateMetaInfo metaInfo = new StateMetaInfo(offsets, Mode.valueOf(stateNode.get("distributionMode").asText()));
+                    stateMap.put(stateName, metaInfo);
                 }
             }
             return new OperatorStreamStateHandle(stateMap, metaDataState);
@@ -705,9 +665,6 @@ public class OmniTaskWrapper {
             metaStateHandle = operatorStateHandle.getDelegateStateHandle();
         } else {
             throw new IOException("Unsupported metaStateHandleStr json.");
-        }
-        if (metaStateHandle == null) {
-            throw new IOException("OperatorStreamStateHandle delegate is null.");
         }
 
         RuntimeEnvironment env = omniTask.getCheckpointingEnv();

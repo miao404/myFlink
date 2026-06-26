@@ -229,10 +229,10 @@ public class StreamExecGlobalWindowAggregate extends StreamExecWindowAggregateBa
             Duration size = ((TumblingWindowSpec) windowSpec).getSize();
             Duration offset = ((TumblingWindowSpec) windowSpec).getOffset();
             if (offset != null) {
-                jsonMap.put("windowOffset", offset.toMillis());
+                jsonMap.put("offset", offset.toMillis());
             }
             jsonMap.put("timeAttributeIndex", timeAttributeIndex);
-            jsonMap.put("windowSize", size.toMillis());
+            jsonMap.put("size", size.toMillis());
         } else if (windowSpec instanceof HoppingWindowSpec) {
             Duration size = ((HoppingWindowSpec) windowSpec).getSize();
             Duration slide = ((HoppingWindowSpec) windowSpec).getSlide();
@@ -245,11 +245,11 @@ public class StreamExecGlobalWindowAggregate extends StreamExecWindowAggregateBa
             }
             Duration offset = ((HoppingWindowSpec) windowSpec).getOffset();
             if (offset != null) {
-                jsonMap.put("windowOffset", offset.toMillis());
+                jsonMap.put("offset", offset.toMillis());
             }
             jsonMap.put("timeAttributeIndex", timeAttributeIndex);
-            jsonMap.put("windowSize", size.toMillis());
-            jsonMap.put("windowSlide", slide.toMillis());
+            jsonMap.put("size", size.toMillis());
+            jsonMap.put("slide", slide.toMillis());
         } else if (windowSpec instanceof CumulativeWindowSpec) {
             Duration maxSize = ((CumulativeWindowSpec) windowSpec).getMaxSize();
             Duration step = ((CumulativeWindowSpec) windowSpec).getStep();
@@ -262,7 +262,7 @@ public class StreamExecGlobalWindowAggregate extends StreamExecWindowAggregateBa
             }
             Duration offset = ((CumulativeWindowSpec) windowSpec).getOffset();
             if (offset != null) {
-                jsonMap.put("windowOffset", offset.toMillis());
+                jsonMap.put("offset", offset.toMillis());
             }
             jsonMap.put("timeAttributeIndex", timeAttributeIndex);
             jsonMap.put("maxSize", maxSize.toMillis());
@@ -270,7 +270,6 @@ public class StreamExecGlobalWindowAggregate extends StreamExecWindowAggregateBa
         } else {
             throw new UnsupportedOperationException(windowSpec + " is not supported yet.");
         }
-        jsonMap.put("shiftTimeZone", shiftTimeZone.toString());
     }
 
     @SuppressWarnings("unchecked")
@@ -386,7 +385,8 @@ public class StreamExecGlobalWindowAggregate extends StreamExecWindowAggregateBa
                         SimpleOperatorFactory.of(windowOperator),
                         InternalTypeInfo.of(getOutputType()),
                         inputTransform.getParallelism(),
-                        WINDOW_AGG_MEMORY_RATIO);
+                        WINDOW_AGG_MEMORY_RATIO,
+                        false);
 
         // set KeyType and Selector for state
         transform.setStateKeySelector(selector);

@@ -297,7 +297,8 @@ public class StreamExecGroupWindowAggregate extends StreamExecAggregateBase {
                         createTransformationMeta(GROUP_WINDOW_AGGREGATE_TRANSFORMATION, config),
                         operator,
                         InternalTypeInfo.of(getOutputType()),
-                        inputTransform.getParallelism());
+                        inputTransform.getParallelism(),
+                        false);
 
         long allowedLateness = 0L;
         WindowEmitStrategy emitStrategy = WindowEmitStrategy.apply(config, window);
@@ -463,7 +464,6 @@ public class StreamExecGroupWindowAggregate extends StreamExecAggregateBase {
             jsonMap.put("windowSlide", windowSlide);
         }
         jsonMap.put("inputTimeFieldIndex", inputTimeFieldIndex);
-        jsonMap.put("shiftTimeZone", shiftTimeZone.toString());
     }
 
     private LogicalType[] extractLogicalTypes(DataType[] dataTypes) {

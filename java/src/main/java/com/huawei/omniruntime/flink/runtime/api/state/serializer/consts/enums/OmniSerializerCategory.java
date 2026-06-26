@@ -16,6 +16,5 @@ public enum OmniSerializerCategory {
     TIMER,
     PRIMITIVE_ARRAY,
     ROW,
-    BINARY_ROW,
     UNKNOWN
 }

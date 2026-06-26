@@ -79,13 +79,19 @@ import static org.apache.flink.util.Preconditions.checkState;
 @Internal
 public class StreamConfig implements Serializable {
 
-    @VisibleForTesting
-    public static final String SERIALIZEDUDF = "serializedUDF";
+    private static final long serialVersionUID = 1L;
 
     // ------------------------------------------------------------------------
     //  Config Keys
     // ------------------------------------------------------------------------
-    private static final long serialVersionUID = 1L;
+    
+    public static final String SERIALIZED_UDF = "serializedUDF";
+    /**
+     * Introduce serializedUdfClassName to avoid unnecessarily heavy {@link
+     * #getStreamOperatorFactory}.
+     */
+    public static final String SERIALIZED_UDF_CLASS_NAME = "serializedUdfClassName";
+    
     private static final String NUMBER_OF_OUTPUTS = "numberOfOutputs";
     private static final String NUMBER_OF_NETWORK_INPUTS = "numberOfNetworkInputs";
     private static final String CHAINED_OUTPUTS = "chainedOutputs";
@@ -126,8 +132,6 @@ public class StreamConfig implements Serializable {
 
     private static final String USE_OMNI_ENABLED = "useomni";
 
-    private static final String SPLIT_WATERMARK = "splitWatermark";
-
     private static final String JOB_TYPE = "jobType";
 
     private static final String TASK_TYPE = "taskType";
@@ -139,8 +143,6 @@ public class StreamConfig implements Serializable {
     private static final String CHECKPOINT_CONF = "checkpointConf";
 
     private static final String EXECUTION_CHECKPOINT_CONF = "executionCheckpointConf";
-
-    private static final String PARTITION_OMNI_FLAG_MAP = "partitionOmniFlagMap";
 
     private static final String MANAGED_MEMORY_FRACTION_PREFIX = "managedMemFraction.";
     private static final ConfigOption<Boolean> STATE_BACKEND_USE_MANAGED_MEMORY =
@@ -424,7 +426,8 @@ public class StreamConfig implements Serializable {
 
     public void setStreamOperatorFactory(StreamOperatorFactory<?> factory) {
         if (factory != null) {
-            toBeSerializedConfigObjects.put(SERIALIZEDUDF, factory);
+            toBeSerializedConfigObjects.put(SERIALIZED_UDF, factory);
+            config.setString(SERIALIZED_UDF_CLASS_NAME, factory.getClass().getName());
         }
     }
 
@@ -436,7 +439,7 @@ public class StreamConfig implements Serializable {
 
     public <T extends StreamOperatorFactory<?>> T getStreamOperatorFactory(ClassLoader cl) {
         try {
-            return InstantiationUtil.readObjectFromConfig(this.config, SERIALIZEDUDF, cl);
+            return InstantiationUtil.readObjectFromConfig(this.config, SERIALIZED_UDF, cl);
         } catch (ClassNotFoundException e) {
             String classLoaderInfo = ClassLoaderUtil.getUserCodeClassLoaderInfo(cl);
             boolean loadableDoubleCheck = ClassLoaderUtil.validateClassLoadable(e, cl);
@@ -454,6 +457,10 @@ public class StreamConfig implements Serializable {
         } catch (Exception e) {
             throw new StreamTaskException("Cannot instantiate user function.", e);
         }
+    }
+
+    public String getStreamOperatorFactoryClassName() {
+        return config.getString(SERIALIZED_UDF_CLASS_NAME, null);
     }
 
     public String getIterationId() {
@@ -572,12 +579,34 @@ public class StreamConfig implements Serializable {
         return config.get(ExecutionCheckpointingOptions.ALIGNED_CHECKPOINT_TIMEOUT);
     }
 
-    // ---------------- Use Omni Native Operator -----------------
-
     public void setAlignedCheckpointTimeout(Duration alignedCheckpointTimeout) {
         config.set(
                 ExecutionCheckpointingOptions.ALIGNED_CHECKPOINT_TIMEOUT, alignedCheckpointTimeout);
     }
+
+    public void setMaxConcurrentCheckpoints(int maxConcurrentCheckpoints) {
+        config.setInteger(
+                ExecutionCheckpointingOptions.MAX_CONCURRENT_CHECKPOINTS, maxConcurrentCheckpoints);
+    }
+
+    public int getMaxConcurrentCheckpoints() {
+        return config.getInteger(
+                ExecutionCheckpointingOptions.MAX_CONCURRENT_CHECKPOINTS,
+                ExecutionCheckpointingOptions.MAX_CONCURRENT_CHECKPOINTS.defaultValue());
+    }
+
+    public int getMaxSubtasksPerChannelStateFile() {
+        return config.get(
+                ExecutionCheckpointingOptions.UNALIGNED_MAX_SUBTASKS_PER_CHANNEL_STATE_FILE);
+    }
+
+    public void setMaxSubtasksPerChannelStateFile(int maxSubtasksPerChannelStateFile) {
+        config.set(
+                ExecutionCheckpointingOptions.UNALIGNED_MAX_SUBTASKS_PER_CHANNEL_STATE_FILE,
+                maxSubtasksPerChannelStateFile);
+    }
+
+    // ---------------- Use Omni Native Operator -----------------
 
     public boolean isUseOmniEnabled() {
         return config.getBoolean(USE_OMNI_ENABLED, false);
@@ -585,14 +614,6 @@ public class StreamConfig implements Serializable {
 
     public void setUseOmniEnabled(boolean enabled) {
         config.setBoolean(USE_OMNI_ENABLED, enabled);
-    }
-
-    public boolean isSplitWatermark() {
-        return config.getBoolean(SPLIT_WATERMARK, false);
-    }
-
-    public void setSplitWatermark(boolean enabled) {
-        config.setBoolean(SPLIT_WATERMARK, enabled);
     }
 
     public void setJobType(int jobType) {
@@ -641,33 +662,6 @@ public class StreamConfig implements Serializable {
 
     public String getExecutionCheckpointConf() {
         return config.getString(EXECUTION_CHECKPOINT_CONF, "");
-    }
-
-    /**
-     * Sets a map from IntermediateDataSetID to useOmniFlag flag for partition sources.
-     * This map is used to determine if a partition is produced by a native (Omni) task.
-     * @param partitionOmniFlagMap Map from IntermediateDataSetID (as String) to Boolean useOmniFlag
-     */
-    public void setPartitionOmniFlagMap(Map<String, Boolean> partitionOmniFlagMap) {
-        try {
-            InstantiationUtil.writeObjectToConfig(partitionOmniFlagMap, this.config, PARTITION_OMNI_FLAG_MAP);
-        } catch (IOException e) {
-            throw new StreamTaskException("Could not serialize partition OmniFlag map.", e);
-        }
-    }
-
-    /**
-     * Gets the map from IntermediateDataSetID to useOmniFlag flag for partition sources.
-     * @return Map from IntermediateDataSetID (as String) to Boolean useOmniFlag, or empty map if not set
-     */
-    public Map<String, Boolean> getPartitionOmniFlagMap(ClassLoader cl) {
-        try {
-            Map<String, Boolean> map =
-                    InstantiationUtil.readObjectFromConfig(this.config, PARTITION_OMNI_FLAG_MAP, cl);
-            return map == null ? new HashMap<>() : map;
-        } catch (Exception e) {
-            throw new StreamTaskException("Could not instantiate partition OmniFlag map.", e);
-        }
     }
     
     /**

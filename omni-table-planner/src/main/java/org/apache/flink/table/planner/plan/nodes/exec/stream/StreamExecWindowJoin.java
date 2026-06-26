@@ -50,7 +50,6 @@ import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.SingleTransformationTranslator;
 import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.spec.JoinSpec;
-import org.apache.flink.table.planner.plan.nodes.exec.util.DescriptionUtil;
 import org.apache.flink.table.planner.plan.nodes.exec.util.RexNodeUtil;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
 import org.apache.flink.table.planner.plan.utils.JoinUtil;
@@ -154,14 +153,14 @@ public class StreamExecWindowJoin extends ExecNodeBase<RowData>
         }
     }
 
-    private String getExtraDescription(String oldDescription, RowType leftType, RowType rightType, int leftWindowEndIndex, int rightWindowEndIndex, ZoneId shiftTimeZone) {
+    private String getExtraDescription(String oldDescription, RowType leftType, RowType rightType, int leftWindowEndIndex, int rightWindowEndIndex) {
         ObjectMapper objectMapper = JacksonMapperFactory.createObjectMapper();
         // get inputType info
         List<String> leftInputTypeList = new ArrayList<>();
         List<RowType.RowField> leftInputFields = leftType.getFields();
         for (RowType.RowField field : leftInputFields) {
             LogicalType fieldType = field.getType();
-            String typeName = DescriptionUtil.getFieldType(fieldType);
+            String typeName = fieldType.toString();
             leftInputTypeList.add(typeName);
         }
 
@@ -169,7 +168,7 @@ public class StreamExecWindowJoin extends ExecNodeBase<RowData>
         List<RowType.RowField> rightInputFields = rightType.getFields();
         for (RowType.RowField field : rightInputFields) {
             LogicalType fieldType = field.getType();
-            String typeName = DescriptionUtil.getFieldType(fieldType);
+            String typeName = fieldType.toString();
             rightInputTypeList.add(typeName);
         }
         // get outputTypes.
@@ -177,7 +176,7 @@ public class StreamExecWindowJoin extends ExecNodeBase<RowData>
         List<RowType.RowField> fields = ((RowType) getOutputType()).getFields();
         for (RowType.RowField field : fields) {
             LogicalType fieldType = field.getType();
-            String typeName = DescriptionUtil.getFieldType(fieldType);
+            String typeName = fieldType.toString();
             outputTypeList.add(typeName);
         }
         // join info
@@ -216,7 +215,6 @@ public class StreamExecWindowJoin extends ExecNodeBase<RowData>
         jsonMap.put("rightTimeAttributeType", rightTypeName);
         jsonMap.put("leftWindowEndIndex", leftWindowEndIndex);
         jsonMap.put("rightWindowEndIndex", rightWindowEndIndex);
-        jsonMap.put("shiftTimeZone", shiftTimeZone.toString());
 
         String jsonString = "";
         try {
@@ -283,7 +281,8 @@ public class StreamExecWindowJoin extends ExecNodeBase<RowData>
                         createTransformationMeta(WINDOW_JOIN_TRANSFORMATION, config),
                         operator,
                         InternalTypeInfo.of(returnType),
-                        leftTransform.getParallelism());
+                        leftTransform.getParallelism(),
+                        false);
 
         // set KeyType and Selector for state
         RowDataKeySelector leftSelect =
@@ -294,7 +293,7 @@ public class StreamExecWindowJoin extends ExecNodeBase<RowData>
                         planner.getFlinkContext().getClassLoader(), rightJoinKey, rightTypeInfo);
         transform.setStateKeySelectors(leftSelect, rightSelect);
         transform.setStateKeyType(leftSelect.getProducedType());
-        transform.setDescription(getExtraDescription(transform.getDescription(), leftType, rightType, leftWindowEndIndex, rightWindowEndIndex, shiftTimeZone));
+        transform.setDescription(getExtraDescription(transform.getDescription(), leftType, rightType, leftWindowEndIndex, rightWindowEndIndex));
         return transform;
     }
 }

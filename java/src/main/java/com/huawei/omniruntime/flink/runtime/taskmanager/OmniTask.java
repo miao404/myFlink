@@ -52,6 +52,7 @@ import org.apache.flink.runtime.checkpoint.CheckpointOptions;
 import org.apache.flink.runtime.checkpoint.CheckpointStoreUtil;
 import org.apache.flink.runtime.checkpoint.SavepointType;
 import org.apache.flink.runtime.checkpoint.SnapshotType;
+import org.apache.flink.runtime.checkpoint.channel.ChannelStateWriteRequestExecutorFactory;
 import org.apache.flink.runtime.checkpoint.channel.ChannelStateWriter;
 import org.apache.flink.runtime.clusterframework.types.AllocationID;
 import org.apache.flink.runtime.deployment.InputGateDeploymentDescriptor;
@@ -89,6 +90,7 @@ import org.apache.flink.runtime.jobgraph.tasks.TaskInvokable;
 import org.apache.flink.runtime.jobgraph.tasks.TaskOperatorEventGateway;
 import org.apache.flink.runtime.memory.MemoryManager;
 import org.apache.flink.runtime.memory.OpaqueMemoryResource;
+import org.apache.flink.runtime.memory.SharedResources;
 import org.apache.flink.runtime.metrics.groups.InternalOperatorMetricGroup;
 import org.apache.flink.runtime.metrics.groups.TaskMetricGroup;
 import org.apache.flink.runtime.operators.coordination.OperatorEvent;
@@ -145,7 +147,6 @@ import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -197,10 +198,6 @@ public class OmniTask extends Task {
     private long nativeTaskMetricGroupRef;
     private OmniTaskMetricGroup omniTaskMetricGroup;
     private Map<ExecutionAttemptID,OmniTaskReferenceCounter> taskSlotTable;
-    
-    // Cache for producer JobVertexID -> useOmniFlag mapping to avoid runtime race conditions
-    // This is populated from StreamConfig during task initialization
-    private Map<String, Boolean> partitionOmniFlagMap;
 
     /**
      * checkpointing
@@ -255,7 +252,7 @@ public class OmniTask extends Task {
     public OmniTask(JobInformation jobInformation, TaskInformation taskInformation,
                     ExecutionAttemptID executionAttemptID, AllocationID slotAllocationId,
                     List<ResultPartitionDeploymentDescriptor> resultPartitionDeploymentDescriptors,
-                    List<InputGateDeploymentDescriptor> inputGateDeploymentDescriptors, MemoryManager memManager,
+                    List<InputGateDeploymentDescriptor> inputGateDeploymentDescriptors, MemoryManager memManager, SharedResources sharedResources,
                     IOManager ioManager, ShuffleEnvironment<?, ?> shuffleEnvironment, KvStateService kvStateService,
                     BroadcastVariableManager bcVarManager, TaskEventDispatcher taskEventDispatcher,
                     ExternalResourceInfoProvider externalResourceInfoProvider, TaskStateManager taskStateManager,
@@ -263,21 +260,20 @@ public class OmniTask extends Task {
                     CheckpointResponder checkpointResponder, TaskOperatorEventGateway operatorCoordinatorEventGateway,
                     GlobalAggregateManager aggregateManager, LibraryCacheManager.ClassLoaderHandle classLoaderHandle,
                     FileCache fileCache, TaskManagerRuntimeInfo taskManagerConfig, @Nonnull TaskMetricGroup metricGroup,
-                    PartitionProducerStateChecker partitionProducerStateChecker, Executor executor,Map<ExecutionAttemptID,OmniTaskReferenceCounter> taskSlotTable,
+                    PartitionProducerStateChecker partitionProducerStateChecker, Executor executor, ChannelStateWriteRequestExecutorFactory channelStateExecutorFactory, Map<ExecutionAttemptID,OmniTaskReferenceCounter> taskSlotTable,
                     TaskStateManagerWrapper taskStateManagerWrapper, TaskOperatorGatewayWrapper taskOperatorGatewayWrapper) {
         super(jobInformation, taskInformation, executionAttemptID, slotAllocationId,
-                resultPartitionDeploymentDescriptors, inputGateDeploymentDescriptors, memManager, ioManager,
+                resultPartitionDeploymentDescriptors, inputGateDeploymentDescriptors, memManager, sharedResources, ioManager,
                 shuffleEnvironment, kvStateService, bcVarManager, taskEventDispatcher, externalResourceInfoProvider,
                 taskStateManager, taskManagerActions, inputSplitProvider, checkpointResponder,
                 operatorCoordinatorEventGateway, aggregateManager, classLoaderHandle, fileCache, taskManagerConfig,
-                metricGroup, partitionProducerStateChecker, executor);
+                metricGroup, partitionProducerStateChecker, executor, channelStateExecutorFactory);
         this.__taskInformation = taskInformation;
         this.__jobInformation = jobInformation;
         this.jobType = JobType.NULL;
         this.taskSlotTable = taskSlotTable;
         this.taskStateManagerWrapper = taskStateManagerWrapper;
         this.taskOperatorGatewayWrapper=taskOperatorGatewayWrapper;
-        this.partitionOmniFlagMap = new HashMap<>();
     }
 
     public TaskStateManagerWrapper getTaskStateManagerWrapper() {
@@ -396,7 +392,7 @@ public class OmniTask extends Task {
                 LOG.error("Error during closing rocksDBSharedResources of task {} ({}).", taskNameWithSubtask, executionId, t);
             }
 
-            //待优化 deleteNativeTask(nativeTaskRef);
+            deleteNativeTask(nativeTaskRef);
         }
     }
 
@@ -509,11 +505,11 @@ public class OmniTask extends Task {
         TaskKvStateRegistry kvStateRegistry = kvStateService.createKvStateTaskRegistry(jobId, getJobVertexId());
 
         Environment env = new RuntimeEnvironment(jobId, vertexId, executionId, executionConfig, taskInfo,
-                jobConfiguration, taskConfiguration, userCodeClassLoader, memoryManager, ioManager,
+                jobConfiguration, taskConfiguration, userCodeClassLoader, memoryManager, sharedResources, ioManager,
                 broadcastVariableManager, taskStateManager, aggregateManager, accumulatorRegistry, kvStateRegistry,
                 inputSplitProvider, distributedCacheEntries, partitionWriters, inputGates, taskEventDispatcher,
                 checkpointResponder, operatorCoordinatorEventGateway, taskManagerConfig, metrics, this,
-                externalResourceInfoProvider);
+                externalResourceInfoProvider, channelStateExecutorFactory);
 
         // Save it so that OmniTaskWrapper can get env for checkpointing
         checkpointingEnv = (RuntimeEnvironment) env;
@@ -524,23 +520,8 @@ public class OmniTask extends Task {
         executingThread.setContextClassLoader(userCodeClassLoader.asClassLoader());
 
         StreamConfig streamConfig = new StreamConfig(taskConfiguration);
-        Collection<StreamConfig> configs =
-                streamConfig.getTransitiveChainedTaskConfigsWithSelf(userCodeClassLoader.asClassLoader()).values();
-        
-        // Initialize partition OmniFlag map from StreamConfig to avoid runtime race conditions
-        initializePartitionOmniFlagMap(streamConfig, userCodeClassLoader.asClassLoader());
-
-        // Initialize metric for Omni Task.(should initialize in createInitAndInvokeTask)
-        boolean useomniFlag = __taskInformation.getTaskConfiguration().getBoolean("useomni", false);
-        if (useomniFlag && (jobType == JobType.SQL || jobType == JobType.STREAM)) {
-            for (StreamConfig config : configs) {
-                InternalOperatorMetricGroup operatorMetricGroup =
-                        env.getMetricGroup().getOrAddOperator(config.getOperatorID(), config.getOperatorName());
-                if (config.isChainEnd()) {
-                    operatorMetricGroup.getIOMetricGroup().reuseOutputMetricsForTask();
-                }
-            }
-        }
+        InternalOperatorMetricGroup operator = env.getMetricGroup().getOrAddOperator(streamConfig.getOperatorID(),
+                streamConfig.getOperatorName());
         // invokale Omni Source Operator Stream Task
 
         // When constructing invokable, separate threads can be constructed and thus should be
@@ -611,7 +592,7 @@ public class OmniTask extends Task {
             // meantime
             // restore original task first
             nativeTaskMetricGroupRef = createNativeTaskMetricGroup(nativeTaskRef);
-            registerNativeTaskMetrics();
+            // register omni metrics, code: omniTaskMetricGroup = registerOmniTaskMetrics().
             // After nativeTask is deleted, the Java side may still call the native interface to obtain
             // old metric data (which has been deleted and becomes a dangling pointer), causing
             // TaskManager to coredump. Therefore, omni metric data is temporarily not registered.
@@ -668,14 +649,6 @@ public class OmniTask extends Task {
         }
         return invokable;
     }
-
-    private void registerNativeTaskMetrics(){
-        StreamConfig streamConfig = new StreamConfig(taskConfiguration);
-        Collection<StreamConfig> configs =
-                streamConfig.getTransitiveChainedTaskConfigsWithSelf(userCodeClassLoader.asClassLoader()).values();
-        OmniMetricHelper.registerNativeMetrics(this.metrics, nativeTaskMetricGroupRef, configs);
-    }
-
     public void declineCheckpoint(
             long checkpointID,
             CheckpointFailureReason failureReason,
@@ -1022,38 +995,7 @@ public class OmniTask extends Task {
         }
     }
     
-    /**
-     * Initialize the partition OmniFlag map from StreamConfig.
-     * This map maps producer JobVertexID to useOmniFlag of source vertex.
-     * Called during task initialization to populate the cache before any channel checks.
-     */
-    private void initializePartitionOmniFlagMap(StreamConfig streamConfig, ClassLoader classLoader) {
-        try {
-            this.partitionOmniFlagMap = streamConfig.getPartitionOmniFlagMap(classLoader);
-            LOG.info("Initialized partition OmniFlag map with {} entries for task {}", 
-                partitionOmniFlagMap.size(), getTaskInfo().getTaskNameWithSubtasks());
-        } catch (Exception e) {
-            LOG.warn("Failed to initialize partition OmniFlag map, will fall back to taskSlotTable", e);
-            this.partitionOmniFlagMap = new HashMap<>();
-        }
-    }
-    
-    private String getProducerJobVertexIdString(ResultPartitionID partitionId) {
-        return partitionId.getProducerId().getJobVertexId().toString();
-    }
-
     boolean checkIfTargetResultPartitionIsNative(ResultPartitionID partitionId) {
-        if (partitionOmniFlagMap != null && !partitionOmniFlagMap.isEmpty()) {
-            String producerJobVertexId = getProducerJobVertexIdString(partitionId);
-            if (producerJobVertexId != null && partitionOmniFlagMap.containsKey(producerJobVertexId)) {
-                boolean isNative = partitionOmniFlagMap.get(producerJobVertexId);
-                LOG.debug("Checked partition {} using producer JobVertexID {}: isNative={}",
-                        partitionId, producerJobVertexId, isNative);
-                return isNative;
-            }
-        }
-
-        LOG.debug("Partition {} not found in JobVertex OmniFlag map, using taskSlotTable fallback", partitionId);
         OmniTaskReferenceCounter omniTaskReferenceCounter = taskSlotTable.get(partitionId.getProducerId());
         if (omniTaskReferenceCounter != null) {
             OmniTask omniTask = omniTaskReferenceCounter.getTask();
@@ -1061,6 +1003,7 @@ public class OmniTask extends Task {
         } else {
             throw new GeneralRuntimeException("OmniTaskReferenceCounter is null for partitionId: " + partitionId);
         }
+        
     }
 
     private void setRecoverInputStateFutureCompleted(RecoveredInputChannel recoveredInputChannel) {

@@ -159,6 +159,7 @@ public final class OmniGraphOverride {
         } else {
             SUPPORT_OP_NAME.addAll(Arrays.asList(
                     "Calc",
+                    "Correlate",
                     "GroupAggregate",
                     "LocalGroupAggregate",
                     "GlobalGroupAggregate",
@@ -178,7 +179,7 @@ public final class OmniGraphOverride {
                     "ConstraintEnforcer"));
         }
         SUPPORT_KAFKA_SCHEMA_TYPE.add("JsonRowDataDeserializationSchema");
-        OP_NAME_OF_SQL.addAll(Arrays.asList("Calc", "GroupAggregate", "LocalGroupAggregate", "GlobalGroupAggregate",
+        OP_NAME_OF_SQL.addAll(Arrays.asList("Calc", "Correlate", "GroupAggregate", "LocalGroupAggregate", "GlobalGroupAggregate",
                 "IncrementalGroupAggregate", "Join", "LookupJoin", "WindowAggregate", "WindowJoin", "GroupWindowAggregate",
                 "Deduplicate", "Expand", "GlobalWindowAggregate", "LocalWindowAggregate", "WatermarkAssigner", "Rank",
                 "StreamRecordTimestampInserter", "ConstraintEnforcer"));
@@ -270,22 +271,6 @@ public final class OmniGraphOverride {
             vertexConfig.setUseOmniEnabled(false);
             return false;
         }
-    }
-
-    public static boolean checkSplitWatermark(Map.Entry<Integer, JobVertex> vertexEntry,
-                                           Map<Integer, StreamingJobGraphGenerator.OperatorChainInfo> chainInfos,
-                                           boolean otherChainDoSplit) {
-        StreamConfig vertexConfig = new StreamConfig(vertexEntry.getValue().getConfiguration());
-        boolean nowChainDoSplit = false;
-        for (Integer key : chainInfos.keySet()) {
-            StreamingJobGraphGenerator.OperatorChainInfo chainInfo = chainInfos.get(key);
-            List<StreamNode> streamNodes = chainInfo.getAllChainedNodes();
-            for (StreamNode node : streamNodes) {
-                nowChainDoSplit = nowChainDoSplit || node.getOperatorName().contains("Window");
-            }
-            vertexConfig.setSplitWatermark(otherChainDoSplit || nowChainDoSplit);
-        }
-        return vertexConfig.isSplitWatermark();
     }
 
     private static boolean checkDataStreamSupportTransferSerializer(TypeSerializer<?> typeSerializer) {
