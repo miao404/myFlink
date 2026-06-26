@@ -58,7 +58,7 @@ void StreamCorrelateOperator::parseDescription(const nlohmann::json& desc)
     inputColumnCount_ = static_cast<int>(inputTypes_.size());
     outputColumnCount_ = static_cast<int>(outputTypes_.size());
 
-    // 预解析输入列的 OmniTypeId
+    inputTypeIds_.clear();
     for (const auto& typeStr : inputTypes_) {
         inputTypeIds_.push_back(LogicalType::flinkTypeToOmniTypeId(typeStr));
     }
@@ -86,28 +86,22 @@ void StreamCorrelateOperator::processBatch(StreamRecord* input)
         return;
     }
 
-    // ========== 第一步：对每行调用 UDTF，收集结果 ==========
-    // inputRowIndices[i] = 该输出行对应的输入行号
-    // udtfResults[i]     = 该输出行的 UDTF 输出字符串
+    // ========== Step 1: Call UDTF for each row, collect results ==========
     std::vector<int> inputRowIndices;
     std::vector<std::string> udtfResults;
-    // 记录哪些输入行没有产生输出（用于 LEFT JOIN）
     std::vector<bool> hasOutput(inputRowCount, false);
 
-    // 取 UDTF 参数列（目前 JsonSplit 只有一个 STRING 参数）
     int argColIndex = functionArgIndices_[0];
     auto* argVec = inputBatch->Get(argColIndex);
 
     for (int row = 0; row < inputRowCount; row++) {
         std::string argValue;
         if (!argVec->IsNull(row)) {
-            // 读取 VARCHAR 列的值
             if (argVec->GetEncoding() == omniruntime::vec::OMNI_FLAT) {
                 auto* castedVec = reinterpret_cast<VarcharVector*>(argVec);
                 std::string_view sv = castedVec->GetValue(row);
                 argValue = std::string(sv.data(), sv.size());
             } else {
-                // Dictionary 编码的 VARCHAR
                 using DictVarcharVec = Vector<DictionaryContainer<
                         std::string_view, LargeStringContainer>>;
                 auto* castedVec = reinterpret_cast<DictVarcharVec*>(argVec);
@@ -116,7 +110,6 @@ void StreamCorrelateOperator::processBatch(StreamRecord* input)
             }
         }
 
-        // 调用 native JsonSplit
         std::vector<std::string> results = tableFunction_->eval(argValue);
 
         if (!results.empty()) {
@@ -128,8 +121,7 @@ void StreamCorrelateOperator::processBatch(StreamRecord* input)
         }
     }
 
-    // ========== 第二步：处理 LEFT JOIN（补 null 行） ==========
-    // leftNullRows 记录需要补 null 的输入行号
+    // ========== Step 2: Handle LEFT JOIN (null-padded rows) ==========
     std::vector<int> leftNullRows;
     if (isLeftJoin_) {
         for (int row = 0; row < inputRowCount; row++) {
@@ -148,14 +140,10 @@ void StreamCorrelateOperator::processBatch(StreamRecord* input)
         return;
     }
 
-    // ========== 第三步：构建输出 VectorBatch ==========
-    // 输出列 = 输入列（按 inputRowIndices 展开） + UDTF 输出列
-    // 对于 LEFT JOIN null 行：输入列正常复制，UDTF 输出列设为 null
-
+    // ========== Step 3: Build output VectorBatch ==========
     auto* outputBatch = new omnistream::VectorBatch(totalOutputRows);
 
-    // --- 3a. 复制输入列（按展开后的行索引） ---
-    // 构建完整的行索引数组：先是正常展开行，再是 LEFT JOIN null 行
+    // --- 3a. Copy input columns (expanded by row indices) ---
     std::vector<int> allInputRowIndices;
     allInputRowIndices.reserve(totalOutputRows);
     allInputRowIndices.insert(allInputRowIndices.end(),
@@ -165,34 +153,29 @@ void StreamCorrelateOperator::processBatch(StreamRecord* input)
 
     for (int col = 0; col < inputColumnCount_; col++) {
         BaseVector* srcVec = inputBatch->Get(col);
-        // 使用 CopyPositionsVector 按指定行索引复制列
-        // 处理 Dictionary 编码的 VARCHAR
-        BaseVector* dstVec;
-        if ((srcVec->GetTypeId() == OMNI_VARCHAR || srcVec->GetTypeId() == OMNI_CHAR)
-            && srcVec->GetEncoding() == omniruntime::vec::OMNI_DICTIONARY) {
-            dstVec = omnistream::VectorBatch::CopyPositionsAndFlatten(
-                    srcVec, allInputRowIndices.data(), 0, totalOutputRows);
+        DataTypeId typeId = srcVec->GetTypeId();
+
+        if ((typeId == DataTypeId::OMNI_CHAR || typeId == DataTypeId::OMNI_VARCHAR)
+                && srcVec->GetEncoding() == omniruntime::vec::OMNI_DICTIONARY) {
+            outputBatch->Append(omnistream::VectorBatch::CopyPositionsAndFlatten(
+                    srcVec, allInputRowIndices.data(), 0, totalOutputRows));
         } else {
-            dstVec = VectorHelper::CopyPositionsVector(
-                    srcVec, allInputRowIndices.data(), 0, totalOutputRows);
+            outputBatch->Append(VectorHelper::CopyPositionsVector(
+                    srcVec, allInputRowIndices.data(), 0, totalOutputRows));
         }
-        outputBatch->Append(dstVec);
     }
 
-    // --- 3b. 构建 UDTF 输出列 ---
-    // JsonSplit 只输出一个 VARCHAR 列
+    // --- 3b. Build UDTF output columns ---
     int udtfResultCount = static_cast<int>(functionResultTypes_.size());
     for (int udtfCol = 0; udtfCol < udtfResultCount; udtfCol++) {
         auto* vec = new VarcharVector(totalOutputRows);
 
-        // 正常展开行：设置 UDTF 结果值
         int normalRows = static_cast<int>(udtfResults.size());
         for (int i = 0; i < normalRows; i++) {
             std::string_view sv(udtfResults[i].data(), udtfResults[i].size());
             vec->SetValue(i, sv);
         }
 
-        // LEFT JOIN null 行：设置 null
         for (int i = normalRows; i < totalOutputRows; i++) {
             vec->SetNull(i);
         }
@@ -200,7 +183,7 @@ void StreamCorrelateOperator::processBatch(StreamRecord* input)
         outputBatch->Append(vec);
     }
 
-    // --- 3c. 设置 timestamp 和 RowKind ---
+    // --- 3c. Set timestamp and RowKind ---
     auto* oldTimestamps = inputBatch->getTimestamps();
     auto* oldRowKinds = inputBatch->getRowKinds();
     for (int i = 0; i < totalOutputRows; i++) {
@@ -209,9 +192,14 @@ void StreamCorrelateOperator::processBatch(StreamRecord* input)
         outputBatch->setRowKind(i, oldRowKinds[srcRow]);
     }
 
-    // ========== 第四步：输出并清理 ==========
+    // ========== Step 4: Output and cleanup ==========
+    timestampedCollector_->collect(outputBatch);
+
     delete inputBatch;
     delete input;
+}
 
-    timestampedCollector_->collect(outputBatch);
+const char* StreamCorrelateOperator::getName()
+{
+    return OneInputStreamOperator::getName();
 }

@@ -57,6 +57,8 @@
 #include "connector/kafka/sink/ProducerConfig.h"
 #include "connector/kafka/utils/ConfigLoader.h"
 #include "co/KeyedCoProcessOperator.h"
+#include "table/runtime/operators/correlate/StreamCorrelateOperator.h"
+#include "table/runtime/operators/correlate/NativeTableFunctionFactory.h"
 #include "StreamOperatorFactory.h"
 
 namespace omnistream {
@@ -760,6 +762,17 @@ StreamOperator* StreamOperatorFactory::CreateCommitOp(omnistream::OperatorPOD& o
     auto* op = new CommitterOperator(processingTimeService, isBatch, true);
     op->setup(std::move(task));
 
+    return static_cast<OneInputStreamOperator *>(op);
+}
+
+StreamOperator* StreamOperatorFactory::CreateStreamCorrelateOp(OperatorPOD &opConfig,
+    WatermarkGaugeExposingOutput *chainOutput, std::shared_ptr<omnistream::OmniStreamTask> task)
+{
+    auto description = opConfig.getDescription();
+    nlohmann::json opDescriptionJSON = nlohmann::json::parse(description);
+    auto *op = new StreamCorrelateOperator(opDescriptionJSON, chainOutput);
+    op->setup(std::move(task));
+    LOG("Operator StreamCorrelateOperator address " + std::to_string(reinterpret_cast<long>(op)))
     return static_cast<OneInputStreamOperator *>(op);
 }
 }

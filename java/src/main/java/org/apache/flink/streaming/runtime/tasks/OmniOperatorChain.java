@@ -31,6 +31,7 @@ import org.apache.flink.api.common.typeutils.base.*;
 import org.apache.flink.api.java.typeutils.runtime.TupleSerializer;
 import org.apache.flink.table.runtime.typeutils.RowDataSerializer;
 import org.apache.flink.table.types.logical.BigIntType;
+import org.apache.flink.table.types.logical.IntType;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.TimestampType;
 import org.apache.flink.table.types.logical.VarCharType;
@@ -250,6 +251,8 @@ public final class OmniOperatorChain {
                 rowFields.put(LogicalTypeDescriptor.createJSONDescriptorVarCharType((VarCharType) type));
             } else if (type instanceof TimestampType) {
                 rowFields.put(LogicalTypeDescriptor.createJSONDescriptorTimestampType((TimestampType) type));
+            } else if (type instanceof IntType) {
+                rowFields.put(LogicalTypeDescriptor.createBasicTypeObject("INTEGER", type.isNullable()));
             } else {
 
             }

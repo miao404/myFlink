@@ -9,82 +9,84 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#ifndef OMNISTREAM_STREAMCORRELATEOPERATOR_H
-#define OMNISTREAM_STREAMCORRELATEOPERATOR_H
+#ifndef FLINK_TNEL_STREAMCORRELATEOPERATOR_H
+#define FLINK_TNEL_STREAMCORRELATEOPERATOR_H
 
-
-#include <functional>
-#include <iostream>
-#include <nlohmann/json.hpp>
-#include <vector>
+#include <memory>
 #include <string>
+#include <vector>
+#include <nlohmann/json.hpp>
 
-#include "streaming/api/operators/Output.h"
-#include "streaming/api/operators/OneInputStreamOperator.h"
-#include "streaming/api/operators/AbstractStreamOperator.h"
-#include "streaming/api/operators/TimestampedCollector.h"
+#include "Output.h"
+#include "AbstractUdfStreamOperator.h"
+#include "OneInputStreamOperator.h"
+#include "TimestampedCollector.h"
 #include "table/data/vectorbatch/VectorBatch.h"
 #include "table/types/logical/LogicalType.h"
-#include "core/include/common.h"
-#include "table/runtime/generated/function/tablefunction/NativeTableFunctionFactory.h"
+#include "NativeTableFunction.h"
+#include "NativeTableFunctionFactory.h"
 
-class StreamCorrelateOperator : public OneInputStreamOperator,
-                                public AbstractStreamOperator<int> {
+class StreamCorrelateOperator : public OneInputStreamOperator, public AbstractStreamOperator<int> {
 public:
     explicit StreamCorrelateOperator(const nlohmann::json& description, Output* output);
     ~StreamCorrelateOperator() override;
 
     void processBatch(StreamRecord* input) override;
 
-    void processElement(StreamRecord* record) override {
+    void processElement(StreamRecord* record) override
+    {
         NOT_IMPL_EXCEPTION
     }
 
     void open() override;
     void close() override;
 
-    const char* getName() override { return "StreamCorrelateOperator"; }
+    const char* getName() override;
 
-    void initializeState(StreamTaskStateInitializerImpl* initializer,
-                         TypeSerializer* keySerializer) override {}
+    void initializeState(StreamTaskStateInitializerImpl* initializer, TypeSerializer* keySerializer) override
+    {
+        LOG("StreamCorrelateOperator initializeState()")
+    }
 
-    void ProcessWatermark(Watermark* watermark) override {
+    void ProcessWatermark(Watermark* watermark) override
+    {
         output->emitWatermark(watermark);
     }
 
-    void processWatermarkStatus(WatermarkStatus* watermarkStatus) override {
+    void processWatermarkStatus(WatermarkStatus* watermarkStatus) override
+    {
         output->emitWatermarkStatus(watermarkStatus);
     }
 
-    std::string getTypeName() override {
-        return "StreamCorrelateOperator";
+    std::string getTypeName() override
+    {
+        std::string typeName = "StreamCorrelateOperator";
+        typeName.append(__PRETTY_FUNCTION__);
+        return typeName;
+    }
+
+    std::shared_ptr<omnistream::TaskMetricGroup> GetMectrics() override
+    {
+        return AbstractStreamOperator::GetMectrics();
     }
 
 private:
     void parseDescription(const nlohmann::json& desc);
 
-    // JsonSplit 的 native 实现：解析 JSON 数组字符串，返回各元素
-    std::vector<std::string> evalJsonSplit(const std::string& input);
-
-    nlohmann::json description_;
-    TimestampedCollector* timestampedCollector_ = nullptr;
-
-    // 从 description 解析出的元信息
-    std::unique_ptr<NativeTableFunction> tableFunction_;
+    std::shared_ptr<NativeTableFunction> tableFunction_;
     std::string functionName_;
     std::string functionClass_;
-    std::string joinType_;           // "InnerJoin" or "LeftOuterJoin"
-    std::vector<int> functionArgIndices_;  // UDTF 参数对应的输入列索引
+    std::string joinType_;
+    bool isLeftJoin_ = false;
+    std::vector<int> functionArgIndices_;
     std::vector<std::string> inputTypes_;
     std::vector<std::string> outputTypes_;
     std::vector<std::string> functionResultTypes_;
+    std::vector<omniruntime::type::DataTypeId> inputTypeIds_;
     int inputColumnCount_ = 0;
     int outputColumnCount_ = 0;
-    bool isLeftJoin_ = false;
-
-    // 输入列的 OmniTypeId（用于按行索引复制列）
-    std::vector<omniruntime::type::DataTypeId> inputTypeIds_;
+    nlohmann::json description_;
+    TimestampedCollector* timestampedCollector_ = nullptr;
 };
 
-
-#endif //OMNISTREAM_STREAMCORRELATEOPERATOR_H
+#endif // FLINK_TNEL_STREAMCORRELATEOPERATOR_H

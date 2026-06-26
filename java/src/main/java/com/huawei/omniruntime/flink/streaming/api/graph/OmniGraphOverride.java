@@ -155,7 +155,8 @@ public final class OmniGraphOverride {
                     "WatermarkAssigner",
                     "StreamRecordTimestampInserter",
                     "ConstraintEnforcer",
-                    "GroupAggregate"));
+                    "GroupAggregate",
+                    "Correlate"));
         } else {
             SUPPORT_OP_NAME.addAll(Arrays.asList(
                     "Calc",
@@ -176,13 +177,14 @@ public final class OmniGraphOverride {
                     "WatermarkAssigner",
                     "Rank",
                     "StreamRecordTimestampInserter",
-                    "ConstraintEnforcer"));
+                    "ConstraintEnforcer",
+                    "Correlate"));
         }
         SUPPORT_KAFKA_SCHEMA_TYPE.add("JsonRowDataDeserializationSchema");
         OP_NAME_OF_SQL.addAll(Arrays.asList("Calc", "Correlate", "GroupAggregate", "LocalGroupAggregate", "GlobalGroupAggregate",
                 "IncrementalGroupAggregate", "Join", "LookupJoin", "WindowAggregate", "WindowJoin", "GroupWindowAggregate",
                 "Deduplicate", "Expand", "GlobalWindowAggregate", "LocalWindowAggregate", "WatermarkAssigner", "Rank",
-                "StreamRecordTimestampInserter", "ConstraintEnforcer"));
+                "StreamRecordTimestampInserter", "ConstraintEnforcer", "Correlate"));
     }
 
     private static boolean isSourceSupportNative = true;
