@@ -58,6 +58,7 @@ void StreamCorrelateOperator::parseDescription(const nlohmann::json& desc)
     inputColumnCount_ = static_cast<int>(inputTypes_.size());
     outputColumnCount_ = static_cast<int>(outputTypes_.size());
 
+    inputTypeIds_.clear();
     for (const auto& typeStr : inputTypes_) {
         inputTypeIds_.push_back(LogicalType::flinkTypeToOmniTypeId(typeStr));
     }
@@ -152,113 +153,15 @@ void StreamCorrelateOperator::processBatch(StreamRecord* input)
 
     for (int col = 0; col < inputColumnCount_; col++) {
         BaseVector* srcVec = inputBatch->Get(col);
-        DataTypeId typeId = inputTypeIds_[col];
+        DataTypeId typeId = srcVec->GetTypeId();
 
-        switch (typeId) {
-            case DataTypeId::OMNI_INT: {
-                auto* src = reinterpret_cast<Vector<int32_t>*>(srcVec);
-                auto* dst = new Vector<int32_t>(totalOutputRows);
-                for (int i = 0; i < totalOutputRows; i++) {
-                    if (src->IsNull(allInputRowIndices[i])) {
-                        dst->SetNull(i);
-                    } else {
-                        dst->SetValue(i, src->GetValue(allInputRowIndices[i]));
-                    }
-                }
-                outputBatch->Append(dst);
-                break;
-            }
-            case DataTypeId::OMNI_LONG:
-            case DataTypeId::OMNI_TIMESTAMP:
-            case DataTypeId::OMNI_TIMESTAMP_WITHOUT_TIME_ZONE:
-            case DataTypeId::OMNI_TIMESTAMP_WITH_LOCAL_TIME_ZONE: {
-                auto* src = reinterpret_cast<Vector<int64_t>*>(srcVec);
-                auto* dst = new Vector<int64_t>(totalOutputRows);
-                for (int i = 0; i < totalOutputRows; i++) {
-                    if (src->IsNull(allInputRowIndices[i])) {
-                        dst->SetNull(i);
-                    } else {
-                        dst->SetValue(i, src->GetValue(allInputRowIndices[i]));
-                    }
-                }
-                outputBatch->Append(dst);
-                break;
-            }
-            case DataTypeId::OMNI_DOUBLE: {
-                auto* src = reinterpret_cast<Vector<double>*>(srcVec);
-                auto* dst = new Vector<double>(totalOutputRows);
-                for (int i = 0; i < totalOutputRows; i++) {
-                    if (src->IsNull(allInputRowIndices[i])) {
-                        dst->SetNull(i);
-                    } else {
-                        dst->SetValue(i, src->GetValue(allInputRowIndices[i]));
-                    }
-                }
-                outputBatch->Append(dst);
-                break;
-            }
-            case DataTypeId::OMNI_BOOLEAN: {
-                auto* src = reinterpret_cast<Vector<bool>*>(srcVec);
-                auto* dst = new Vector<bool>(totalOutputRows);
-                for (int i = 0; i < totalOutputRows; i++) {
-                    if (src->IsNull(allInputRowIndices[i])) {
-                        dst->SetNull(i);
-                    } else {
-                        dst->SetValue(i, src->GetValue(allInputRowIndices[i]));
-                    }
-                }
-                outputBatch->Append(dst);
-                break;
-            }
-            case DataTypeId::OMNI_SHORT: {
-                auto* src = reinterpret_cast<Vector<int16_t>*>(srcVec);
-                auto* dst = new Vector<int16_t>(totalOutputRows);
-                for (int i = 0; i < totalOutputRows; i++) {
-                    if (src->IsNull(allInputRowIndices[i])) {
-                        dst->SetNull(i);
-                    } else {
-                        dst->SetValue(i, src->GetValue(allInputRowIndices[i]));
-                    }
-                }
-                outputBatch->Append(dst);
-                break;
-            }
-            case DataTypeId::OMNI_DECIMAL128: {
-                auto* src = reinterpret_cast<Vector<Decimal128>*>(srcVec);
-                auto* dst = new Vector<Decimal128>(totalOutputRows);
-                for (int i = 0; i < totalOutputRows; i++) {
-                    if (src->IsNull(allInputRowIndices[i])) {
-                        dst->SetNull(i);
-                    } else {
-                        dst->SetValue(i, src->GetValue(allInputRowIndices[i]));
-                    }
-                }
-                outputBatch->Append(dst);
-                break;
-            }
-            case DataTypeId::OMNI_CHAR:
-            case DataTypeId::OMNI_VARCHAR: {
-                if (srcVec->GetEncoding() == omniruntime::vec::OMNI_DICTIONARY) {
-                    outputBatch->Append(omnistream::VectorBatch::CopyPositionsAndFlatten(
-                            srcVec, allInputRowIndices.data(), 0, totalOutputRows));
-                } else {
-                    auto* src = reinterpret_cast<VarcharVector*>(srcVec);
-                    auto* dst = new VarcharVector(totalOutputRows);
-                    for (int i = 0; i < totalOutputRows; i++) {
-                        if (src->IsNull(allInputRowIndices[i])) {
-                            dst->SetNull(i);
-                        } else {
-                            std::string_view sv = src->GetValue(allInputRowIndices[i]);
-                            dst->SetValue(i, sv);
-                        }
-                    }
-                    outputBatch->Append(dst);
-                }
-                break;
-            }
-            default:
-                THROW_LOGIC_EXCEPTION("Unsupported data type in StreamCorrelateOperator: "
-                    + std::to_string(typeId));
+        if ((typeId == DataTypeId::OMNI_CHAR || typeId == DataTypeId::OMNI_VARCHAR)
+                && srcVec->GetEncoding() == omniruntime::vec::OMNI_DICTIONARY) {
+            outputBatch->Append(omnistream::VectorBatch::CopyPositionsAndFlatten(
+                    srcVec, allInputRowIndices.data(), 0, totalOutputRows));
+        } else {
+            outputBatch->Append(VectorHelper::CopyPositionsVector(
+                    srcVec, allInputRowIndices.data(), 0, totalOutputRows));
         }
     }
 
@@ -290,10 +193,10 @@ void StreamCorrelateOperator::processBatch(StreamRecord* input)
     }
 
     // ========== Step 4: Output and cleanup ==========
+    timestampedCollector_->collect(outputBatch);
+
     delete inputBatch;
     delete input;
-
-    timestampedCollector_->collect(outputBatch);
 }
 
 const char* StreamCorrelateOperator::getName()
