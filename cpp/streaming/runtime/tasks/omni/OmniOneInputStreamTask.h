@@ -38,7 +38,9 @@ namespace omnistream {
                 std::shared_ptr<omnistream::SimpleCounter> &numRecordsIn);
         OmniStreamTaskInput* CreateTaskInput(std::shared_ptr<CheckpointedInputGate> inputGate);
         std::shared_ptr<CheckpointedInputGate> CreateCheckpointedInputGate();
-        void cleanup() override;
+        static bool ShouldUseUnionInputGate(int taskType, size_t inputGateCount, bool hasUnionAllInput);
+        static long GetChannelDeserializerId(const InputChannelInfo& channelInfo, bool useUnionAllChannelId);
+        bool HasUnionAllInput() const;
     };
 }
 

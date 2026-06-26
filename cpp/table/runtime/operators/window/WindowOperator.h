@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <regex>
 #include <memory>
+#include <string>
 #include "runtime/operators/window/assigners/SessionWindowAssigner.h"
 #include "table/runtime/operators/window/assigners/SlidingWindowAssigner.h"
 #include "table/runtime/operators/window/assigners/TumblingWindowAssigner.h"
@@ -59,6 +60,9 @@ public:
         keyedIndex = description["grouping"].get<std::vector<int32_t>>();
         trigger = std::make_unique<typename EventTimeTriggers<W>::AfterEndOfWindow>();
         rowtimeIndex = description["inputTimeFieldIndex"];
+        if (description.contains("shiftTimeZone")) {
+            shiftTimeZone = description["shiftTimeZone"].get<std::string>();
+        }
         windowAssigner = getWindowAssigner(description);
         getKeyedTypes();
 
@@ -104,7 +108,7 @@ public:
         return aggCall["argIndexes"].empty() ? -1 : aggCall["argIndexes"][0].get<int32_t>();
     }
 
-    void processBatch(StreamRecord *record) override;
+    void processBatch(StreamRecord *input) override;
 
     void processElement(StreamRecord *element) override {};
     K getCurrentKey() override
@@ -183,6 +187,10 @@ public:
             internalTimerService->deleteEventTimeTimer(window, time);
         }
 
+        const std::string &getShiftTimeZone() const override {
+            return outer->shiftTimeZone;
+        }
+
         W window;
         WindowOperator* outer{};
         Trigger<W>* trigger{};
@@ -202,13 +210,14 @@ public:
             }
 
             auto keyedStateBackend = outerOperator->getKeyedStateBackend();
-            if (dynamic_cast<RocksdbKeyedStateBackend<K>*>(keyedStateBackend) != nullptr) {
+            if (outerOperator->backendType_ == omnistream::StateType::ROCKSDB) {
                 using S = RocksdbMapState<K, VoidNamespace, W, W>;
                 S* state = keyedStateBackend->template getPartitionedState<VoidNamespace, S, emhash7::HashMap<W, W>*>(
                         VoidNamespace(), new VoidNamespaceSerializer(), stateDescriptor);
                 return state;
             }
-            if (dynamic_cast<HeapKeyedStateBackend<K>*>(keyedStateBackend) != nullptr) {
+
+            if (outerOperator->backendType_ == omnistream::StateType::HEAP) {
                 using S = HeapMapState<K, VoidNamespace, W, W>;
                 S* state = keyedStateBackend->template getPartitionedState<VoidNamespace, S, emhash7::HashMap<W, W>*>(
                         VoidNamespace(), new VoidNamespaceSerializer(), stateDescriptor);
@@ -269,6 +278,11 @@ public:
             }
         }
 
+        const std::string& getShiftTimeZone() const override
+        {
+            return outerOperator->shiftTimeZone;
+        }
+
         void onMerge(const W& newWindow, std::vector<W>& mergedWindows) override {
             outerOperator->triggerContext_->window = newWindow;
             outerOperator->triggerContext_->mergedWindows = &mergedWindows;
@@ -304,6 +318,7 @@ protected:
     std::vector<int32_t> windowPropertyTypesId;
     std::vector<std::string> keyedTypes;
     std::vector<int32_t> keyedIndex;
+    std::string shiftTimeZone;
 
 private:
     void processElement(RowData* inputRow);
@@ -340,11 +355,11 @@ private:
     }
 
     std::unique_ptr<WindowAssigner<W>> windowAssigner;
-    std::string shiftTimeZone;
     int32_t rowtimeIndex;
     int64_t allowedLateness = 0;
     std::unique_ptr<TypeSerializer> windowSerializer_;
     std::unique_ptr<BinaryRowDataSerializer> accSerializer_;
     std::unique_ptr<KeySelector<K>> keySelector_;
     int64_t maxTimestamp = INT64_MIN;
+    omnistream::StateType backendType_ = omnistream::StateType::HEAP;
 };

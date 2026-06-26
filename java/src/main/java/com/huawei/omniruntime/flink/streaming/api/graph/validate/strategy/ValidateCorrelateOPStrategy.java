@@ -16,43 +16,45 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
 public class ValidateCorrelateOPStrategy extends AbstractValidateOperatorStrategy {
 
     private static final Logger LOG = LoggerFactory.getLogger(ValidateCorrelateOPStrategy.class);
-
-    private static final Set<String> SUPPORT_JOIN_TYPE = new HashSet<>(Arrays.asList(
-            "InnerJoin", "LeftOuterJoin"));
-
-    private static final Set<String> NATIVE_SUPPORTED_FUNCTION_CLASSES = new HashSet<>(Arrays.asList(
-            "com.ctrip.ops.rtp.flink.example.sql.udf.tablefunction.JsonSplit"));
+    private static final Set<String> SUPPORT_JOIN_TYPE = new HashSet<>(Arrays.asList("InnerJoin", "LeftOuterJoin"));
+    private static final Set<String> NATIVE_SUPPORTED_FUNCTIONS =
+            new HashSet<>(Arrays.asList("jsontest"));
 
     @SuppressWarnings("unchecked")
     @Override
     public boolean executeValidateOperator(Map<String, Object> operatorInfoMap) {
-        // validate joinType
-        String joinType = (String) operatorInfoMap.get("joinType");
-        if (joinType == null || !SUPPORT_JOIN_TYPE.contains(joinType)) {
-            LOG.info("Unsupported correlate join type: {}", joinType);
+        // 校验 joinType
+        Object joinTypeObj = operatorInfoMap.get("joinType");
+        if (joinTypeObj == null || !SUPPORT_JOIN_TYPE.contains(joinTypeObj.toString())) {
+            LOG.info("Correlate unsupported joinType: {}", joinTypeObj);
             return false;
         }
 
-        // validate functionClass
-        String functionClass = (String) operatorInfoMap.get("functionClass");
-        if (functionClass == null || !NATIVE_SUPPORTED_FUNCTION_CLASSES.contains(functionClass)) {
-            LOG.info("Unsupported correlate function class: {}", functionClass);
+        // 校验必要字段存在
+        if (!operatorInfoMap.containsKey("functionName")
+                || !operatorInfoMap.containsKey("functionClass")) {
+            LOG.info("Correlate missing functionName or functionClass");
             return false;
         }
 
-        // validate data types
+        String functionName = operatorInfoMap.get("functionName").toString();
+        if (!NATIVE_SUPPORTED_FUNCTIONS.contains(functionName)) {
+            LOG.info("Correlate function {} not natively supported, fallback", functionName);
+            return false;
+        }
+
         if (!operatorInfoMap.containsKey("inputTypes") || !operatorInfoMap.containsKey("outputTypes")) {
             LOG.info("Missing inputTypes or outputTypes for Correlate operator.");
             return false;
         }
 
+        // 校验数据类型
         return validateDataTypes(getDataTypes(operatorInfoMap, "inputTypes", "outputTypes"));
     }
 }

@@ -16,6 +16,7 @@
 #include "internal/GeneralWindowProcessFunction.h"
 #include "internal/MergingWindowProcessFunction.h"
 #include "internal/PanedWindowProcessFunction.h"
+#include "table/utils/TimeWindowUtil.h"
 
 template<typename K, typename W>
 WindowOperator<K, W>::~WindowOperator() {
@@ -34,6 +35,15 @@ void WindowOperator<K, W>::open() {
     auto* valueStateDescriptor = new ValueStateDescriptor<RowData*>(aggName, accSerializer_.get());
     using S = InternalValueState<K, W, RowData*>;
     auto keyedStateBackend = this->stateHandler->getKeyedStateBackend();
+
+    if (dynamic_cast<RocksdbKeyedStateBackend<K>*>(keyedStateBackend) != nullptr) {
+        backendType_ = omnistream::StateType::ROCKSDB;
+    } else if (dynamic_cast<HeapKeyedStateBackend<K>*>(keyedStateBackend) != nullptr) {
+        backendType_ = omnistream::StateType::HEAP;
+    } else {
+        THROW_LOGIC_EXCEPTION("The keyedStateBackend is not supported");
+    }
+
     S *state = keyedStateBackend->template getOrCreateKeyedState<TimeWindow, S, RowData *>(
         windowSerializer_.get(), valueStateDescriptor);
     windowState = state;
@@ -74,8 +84,7 @@ template<typename K, typename W>
 int64_t WindowOperator<K, W>::cleanupTime(const W& window)
 {
     if (windowAssigner->isEventTime()) {
-        int64_t cleanupTime = std::max<int64_t>(0, window.maxTimestamp() + allowedLateness);
-        return cleanupTime >= window.maxTimestamp() ? cleanupTime : INT64_MAX;
+        return TimeWindowUtil::toCleanupTimerMills(window.maxTimestamp(), allowedLateness, shiftTimeZone);
     }
     return std::max<int64_t>(0, window.maxTimestamp());
 }
@@ -85,7 +94,6 @@ void WindowOperator<K, W>::registerCleanupTimer(const W& window)
 {
     int64_t cleanupTime = this->cleanupTime(window);
     if (cleanupTime != INT64_MAX) {
-        // Use int64_t max to represent Long.MAX_VALUE in C++
         if (windowAssigner->isEventTime()) {
             triggerContext_->registerEventTimeTimer(cleanupTime);
         } else {
@@ -124,17 +132,16 @@ void WindowOperator<K, W>::processWatermarkStatus(WatermarkStatus *watermarkStat
 }
 
 template<typename K, typename W>
-void WindowOperator<K, W>::processBatch(StreamRecord *record)
-{
-    auto *input = reinterpret_cast<omnistream::VectorBatch *>(record->getValue());
-    auto rowCount = input->GetRowCount();
+void WindowOperator<K, W>::processBatch(StreamRecord* input) {
+    auto record = std::unique_ptr<StreamRecord>(input);
+    auto batch = std::unique_ptr<omnistream::VectorBatch>(reinterpret_cast<omnistream::VectorBatch*>(record->getValue()));
+    auto rowCount = batch->GetRowCount();
     if (rowCount <= 0) {
         return;
     }
-    LOG("getEntireRow rowCount :" << rowCount)
     for (int32_t rowIndex = 0; rowIndex < rowCount; rowIndex++) {
-        auto currentRow = std::unique_ptr<RowData>(input->extractRowData(rowIndex));
-        auto currentRowKey = this->keySelector_->getKey(input, rowIndex, false);
+        auto currentRow = std::unique_ptr<RowData>(batch->extractRowData(rowIndex));
+        auto currentRowKey = this->keySelector_->getKey(batch.get(), rowIndex, false);
         this->stateHandler->setCurrentKey(currentRowKey);
         this->processElement(currentRow.get());
     }
@@ -148,6 +155,7 @@ void WindowOperator<K, W>::processElement(RowData *inputRow) {
     } else {
         THROW_LOGIC_EXCEPTION("Processing time window is not supported yet!")
     }
+    timestamp = TimeWindowUtil::toUtcTimestampMills(timestamp, shiftTimeZone);
 
     // the windows which the input row should be placed into
     std::vector<W> affectedWindows = windowFunction->assignStateNamespace(inputRow, timestamp);
@@ -166,6 +174,9 @@ void WindowOperator<K, W>::processElement(RowData *inputRow) {
         }
         acc = windowAggregator->getAccumulators();
         windowState->update(acc);
+        if (backendType_ != omnistream::StateType::HEAP) {
+            delete acc;
+        }
     }
 
     // the actual window which the input row is belongs to

@@ -8,12 +8,18 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef FLINK_TNEL_STATE_H
-#define FLINK_TNEL_STATE_H
 
-#include <unordered_map>
+#pragma once
+
+#include <vector>
 #include "table/data/vectorbatch/VectorBatch.h"
-
+namespace omnistream {
+    enum class StateType {
+        HEAP = 0,
+        ROCKSDB = 1,
+        BSS = 2
+    };
+}
 class State {
 public:
     State() : vectorBatches(){};
@@ -39,6 +45,9 @@ public:
     };
     virtual omnistream::VectorBatch *getVectorBatch(int batchId)
     {
+        if (batchId < 0 || static_cast<size_t>(batchId) >= vectorBatches.size()) {
+            THROW_LOGIC_EXCEPTION("batchId out of bounds: batchId = " << batchId << ", vectorBatches.size() = " << vectorBatches.size())
+        }
         return vectorBatches[batchId];
     }
     virtual void clearVectors(int64_t currentTimestamp)
@@ -64,5 +73,3 @@ public:
 protected:
     std::vector<omnistream::VectorBatch *> vectorBatches;
 };
-
-#endif  // FLINK_TNEL_STATE_H

@@ -30,7 +30,7 @@ public:
     ~WatermarkAssignerOperator() override = default;
 
     // Processing functions
-    void processBatch(StreamRecord *element) override;
+    void processBatch(StreamRecord *input) override;
     void processElement(StreamRecord *element) override;
     void ProcessWatermark(Watermark *mark) override;
     void initializeState(StreamTaskStateInitializerImpl *initializer, TypeSerializer *keySerializer) override {
@@ -54,9 +54,13 @@ public:
 
     std::string getTypeName() override;
     void processWatermarkStatus(WatermarkStatus *watermarkStatus) override;
+    void setSplitWaterMark(bool doSplitWaterMark);
+    void processBatchSimple(StreamRecord *element);
+    void processBatchWatermark(StreamRecord *element);
 
 private:
     int rowtimeIndex_;
+    bool splitWaterMark = false;
     int64_t outOfOrderTime_ = 4000;
     int64_t idleTimeout_;
 

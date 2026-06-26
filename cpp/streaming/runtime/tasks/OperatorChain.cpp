@@ -22,11 +22,18 @@
 #include "streaming/api/operators/sink/CommitterOperator.h"
 #include "state/bridge/OmniTaskBridge.h"
 #include "streaming/api/operators/AbstractStreamOperator.h"
+#include "streaming/api/operators/OneInputStreamOperator.h"
+#include "streaming/api/operators/TwoInputStreamOperator.h"
+#include "basictypes/Object.h"
+#include "table/data/binary/BinaryRowData.h"
 #include "omni/OmniStreamTask.h"
 #include "runtime/io/network/api/writer/RecordWriterDelegate.h"
 #include "taskmanager/OmniRuntimeEnvironment.h"
 #include "streaming/api/operators/OperatorSnapshotFutures.h"
 #include "runtime/checkpoint/channel/ChannelStateWriter.h"
+#include "runtime/executiongraph/TaskInformationPOD.h"
+#include <algorithm>
+#include <cctype>
 
 namespace {
 void AssignConfiguredOperatorId(StreamOperator *op, const omnistream::OperatorPOD &opDesc)
@@ -37,9 +44,60 @@ void AssignConfiguredOperatorId(StreamOperator *op, const omnistream::OperatorPO
     const std::string operatorId = opDesc.getOperatorId();
     if (!operatorId.empty()) {
         op->SetOperatorID(operatorId);
+        if (auto *oneInput = dynamic_cast<OneInputStreamOperator *>(op)) {
+            oneInput->SetOperatorID(operatorId);
+        }
+        if (auto *twoInput = dynamic_cast<TwoInputStreamOperator *>(op)) {
+            twoInput->SetOperatorID(operatorId);
+        }
+        if (auto *rowDataOp = dynamic_cast<AbstractStreamOperator<RowData *> *>(op)) {
+            rowDataOp->SetOperatorID(operatorId);
+        }
+        if (auto *rdRowDataOp = dynamic_cast<AbstractStreamOperator<std::shared_ptr<RowData>> *>(op)) {
+            rdRowDataOp->SetOperatorID(operatorId);
+        }
+        if (auto *objectOp = dynamic_cast<AbstractStreamOperator<Object *> *>(op)) {
+            objectOp->SetOperatorID(operatorId);
+        }
+        if (auto *longOp = dynamic_cast<AbstractStreamOperator<long> *>(op)) {
+            longOp->SetOperatorID(operatorId);
+        }
+        if (auto *voidOp = dynamic_cast<AbstractStreamOperator<void *> *>(op)) {
+            voidOp->SetOperatorID(operatorId);
+        }
+        if (auto *binaryRowDataOp = dynamic_cast<AbstractStreamOperator<BinaryRowData *> *>(op)) {
+            binaryRowDataOp->SetOperatorID(operatorId);
+        }
+
         INFO_RELEASE("savepoint: OperatorChainV2 assign operatorId=" << operatorId
             << " name=" << opDesc.getName() << " id=" << opDesc.getId());
     }
+}
+
+std::string NormalizeOperatorId(std::string id)
+{
+    std::transform(id.begin(), id.end(), id.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
+    return id;
+}
+
+const omnistream::StreamConfigPOD *FindStreamConfigByOperatorId(
+    const omnistream::TaskInformationPOD &taskConfiguration,
+    const std::vector<omnistream::StreamConfigPOD> &chainedConfig,
+    const std::string &operatorId)
+{
+    const std::string normalizedOperatorId = NormalizeOperatorId(operatorId);
+    const auto &headConfig = taskConfiguration.getStreamConfigPOD();
+    if (NormalizeOperatorId(headConfig.getOperatorDescription().getOperatorId()) == normalizedOperatorId) {
+        return &headConfig;
+    }
+    for (const auto &streamConfig : chainedConfig) {
+        if (NormalizeOperatorId(streamConfig.getOperatorDescription().getOperatorId()) == normalizedOperatorId) {
+            return &streamConfig;
+        }
+    }
+    return nullptr;
 }
 }
 
@@ -53,10 +111,8 @@ WatermarkGaugeExposingOutput* OperatorChainV2::wrapOperatorIntoOutput(StreamOper
         throw std::runtime_error("operator is null");
     }
     if (!op->canBeStreamOperator()) {
-        auto pOperator = reinterpret_cast<AbstractStreamOperator<long> *>(op);
-        auto ptr = op->GetMectrics();
         auto *chainingOutput = new ChainingOutput(dynamic_cast<OneInputStreamOperator *>(op),
-                                                  pOperator->GetMectrics(), opConfig);
+                                                  op->GetMectrics(), opConfig);
         return chainingOutput;
     } else {
         return new datastream::DataStreamChainingOutput(dynamic_cast<OneInputStreamOperator *>(op));
@@ -402,8 +458,20 @@ void OperatorChainV2::initializeStateAndOpenOperators(StreamTaskStateInitializer
     while (allOperators.hasNext()) {
         auto operatorWrapper = allOperators.next();
         auto streamOperator = operatorWrapper->getStreamOperator();
-        const StreamConfigPOD& streamConfigPOD =  chainedConfig[index++];
-        const OperatorPOD& operatorPod = streamConfigPOD.getOperatorDescription();
+        const std::string runtimeOperatorId = streamOperator->GetOperatorID().toString();
+        const StreamConfigPOD *streamConfigPOD =
+            FindStreamConfigByOperatorId(taskConfiguration_, chainedConfig, runtimeOperatorId);
+        if (streamConfigPOD == nullptr && index < static_cast<int>(chainedConfig.size())) {
+            streamConfigPOD = &chainedConfig[index];
+        }
+        if (streamConfigPOD == nullptr) {
+            LOG("Error: no StreamConfig for operatorId=" << runtimeOperatorId
+                << ", index=" << index
+                << ", chainedConfigSize=" << chainedConfig.size())
+            THROW_LOGIC_EXCEPTION("no StreamConfig for operatorId=" << runtimeOperatorId)
+        }
+        index++;
+        const OperatorPOD& operatorPod = streamConfigPOD->getOperatorDescription();
         const nlohmann::json& description = nlohmann::json::parse(operatorPod.getDescription());
         int operatorType = operatorPod.getOperatorType();
         switch (operatorType) {
@@ -517,7 +585,16 @@ void OperatorChainV2::SnapshotState(
         auto iter = getAllOperators(true);
         while (iter.hasNext()) {
             auto op = iter.next()->getStreamOperator();
-            (*operatorSnapshotsInProgress)[op->GetOperatorID()]
+            auto operatorId = op->GetOperatorID();
+            if (operatorSnapshotsInProgress->find(operatorId) != operatorSnapshotsInProgress->end()) {
+                INFO_RELEASE("Error: OperatorChainV2::SnapshotState duplicate operatorId="
+                    << operatorId.toString()
+                    << ", opType=" << typeid(*op).name()
+                    << ". Duplicate operator IDs would overwrite checkpoint state.");
+                THROW_LOGIC_EXCEPTION("Duplicate operatorId in OperatorChainV2::SnapshotState: "
+                    << operatorId.toString())
+            }
+            (*operatorSnapshotsInProgress)[operatorId]
             = BuildOperatorSnapshotFutures(checkpointMetaData, checkpointOptions, op, isRunning,
                 channelStateWriteResult, storage, bridge);
         }
@@ -553,6 +630,11 @@ OperatorSnapshotFutures *OperatorChainV2::CheckpointStreamOperator(StreamOperato
             return aop->SnapshotState(checkpointMetaData.GetCheckpointId(), checkpointMetaData.GetTimestamp(),
                                       checkpointOptions, storageLocation, bridge);
         }
+        auto rd_aop = dynamic_cast<AbstractStreamOperator<std::shared_ptr<RowData>>*>(op);
+        if (rd_aop) {
+            return rd_aop->SnapshotState(checkpointMetaData.GetCheckpointId(), checkpointMetaData.GetTimestamp(),
+                                      checkpointOptions, storageLocation, bridge);
+        }
         auto sop = dynamic_cast<AbstractStreamOperator<Object *>*>(op);
         if (sop) {
             return sop->SnapshotState(checkpointMetaData.GetCheckpointId(), checkpointMetaData.GetTimestamp(),
@@ -566,6 +648,11 @@ OperatorSnapshotFutures *OperatorChainV2::CheckpointStreamOperator(StreamOperato
         auto vop = dynamic_cast<AbstractStreamOperator<void*>*>(op);
         if (vop) {
             return vop->SnapshotState(checkpointMetaData.GetCheckpointId(), checkpointMetaData.GetTimestamp(),
+                                      checkpointOptions, storageLocation, bridge);
+        }
+        auto bop = dynamic_cast<AbstractStreamOperator<BinaryRowData *>*>(op);
+        if (bop) {
+            return bop->SnapshotState(checkpointMetaData.GetCheckpointId(), checkpointMetaData.GetTimestamp(),
                                       checkpointOptions, storageLocation, bridge);
         }
         INFO_RELEASE("savepoint: OperatorChainV2::CheckpointStreamOperator StreamOperator::SnapshotState");

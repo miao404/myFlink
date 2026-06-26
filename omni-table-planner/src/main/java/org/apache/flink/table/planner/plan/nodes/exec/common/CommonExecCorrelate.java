@@ -14,33 +14,31 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *
- * We modify this part of the code based on Apache Flink to implement native execution of Flink operators.
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
  */
 
 package org.apache.flink.table.planner.plan.nodes.exec.common;
 
-import static org.apache.flink.util.Preconditions.checkArgument;
-import static org.apache.flink.util.Preconditions.checkNotNull;
-
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexCorrelVariable;
 import org.apache.calcite.rex.RexFieldAccess;
+import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
 import org.apache.calcite.sql.SqlOperator;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.configuration.ReadableConfig;
-import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonIgnore;
-import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.core.JsonProcessingException;
 import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.flink.table.data.RowData;
+import org.apache.flink.table.functions.FunctionDefinition;
+import org.apache.flink.table.functions.TableFunctionDefinition;
+import org.apache.flink.table.functions.UserDefinedFunction;
+import org.apache.flink.table.planner.calcite.FlinkTypeFactory;
 import org.apache.flink.table.planner.codegen.CodeGeneratorContext;
 import org.apache.flink.table.planner.codegen.CorrelateCodeGenerator;
 import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.functions.bridging.BridgingSqlFunction;
+import org.apache.flink.table.planner.functions.utils.TableSqlFunction;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeBase;
@@ -50,16 +48,16 @@ import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.SingleTransformationTranslator;
 import org.apache.flink.table.planner.plan.nodes.exec.util.DescriptionUtil;
 import org.apache.flink.table.planner.plan.nodes.exec.util.RexNodeUtil;
-import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
 import org.apache.flink.table.planner.utils.JavaScalaConversionUtil;
 import org.apache.flink.table.runtime.operators.join.FlinkJoinType;
-import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.LogicalType;
+import org.apache.flink.table.types.logical.LogicalTypeRoot;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.util.jackson.JacksonMapperFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -67,18 +65,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import javax.annotation.Nullable;
+import static org.apache.flink.util.Preconditions.checkArgument;
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
-/**
- * Base {@link ExecNode} which matches along with join a Java/Scala user defined table function.
- */
-@JsonIgnoreProperties(ignoreUnknown = true)
+/** Base {@link ExecNode} which matches along with join a Java/Scala user defined table function. */
 public abstract class CommonExecCorrelate extends ExecNodeBase<RowData>
         implements SingleTransformationTranslator<RowData> {
-    private static final Logger LOG = LoggerFactory.getLogger(CommonExecCorrelate.class);
 
     public static final String CORRELATE_TRANSFORMATION = "correlate";
-
+    private static final Logger LOG = LoggerFactory.getLogger(CommonExecCorrelate.class);
     public static final String FIELD_NAME_JOIN_TYPE = "joinType";
     public static final String FIELD_NAME_FUNCTION_CALL = "functionCall";
     public static final String FIELD_NAME_CONDITION = "condition";
@@ -90,15 +85,12 @@ public abstract class CommonExecCorrelate extends ExecNodeBase<RowData>
     private final RexCall invocation;
 
     @JsonProperty(FIELD_NAME_CONDITION)
-    @Nullable
-    private final RexNode condition;
+    private final @Nullable RexNode condition;
 
-    @JsonIgnore
     private final Class<?> operatorBaseClass;
-    @JsonIgnore
     private final boolean retainHeader;
 
-    protected CommonExecCorrelate(
+    public CommonExecCorrelate(
             int id,
             ExecNodeContext context,
             ReadableConfig persistedConfig,
@@ -119,44 +111,43 @@ public abstract class CommonExecCorrelate extends ExecNodeBase<RowData>
         this.retainHeader = retainHeader;
     }
 
-    private String getExtraDescription(String oldDescription, Transformation<RowData> inputTransform) {
+    /**
+     * 构建 Correlate 算子的额外描述信息 JSON，供 C++ 原生算子使用。
+     *
+     * JSON 结构:
+     * {
+     *   "originDescription": "...",
+     *   "joinType": "INNER" | "LEFT",
+     *   "functionName": "split_func",
+     *   "functionClass": "com.example.SplitFunction",
+     *   "functionArgs": [ { RexNode JSON }, ... ],
+     *   "functionArgIndices": [2, 3],
+     *   "inputTypes": ["BIGINT", "INTEGER", "VARCHAR(2147483647)"],
+     *   "outputTypes": ["BIGINT", "INTEGER", "VARCHAR(2147483647)", "VARCHAR(2147483647)"],
+     *   "functionResultTypes": ["VARCHAR(2147483647)"],
+     *   "condition": null | { RexNode JSON }
+     * }
+     */
+    private String getExtraDescription(String oldDescription, RowType inputRowType) {
         ObjectMapper objectMapper = JacksonMapperFactory.createObjectMapper();
-        HashMap<Integer, Integer> accessIndexMap = new HashMap<>();
 
-        // get inputType info
-        List<String> inputTypeList = new ArrayList<>();
-        List<RowType.RowField> inputFields = ((InternalTypeInfo) inputTransform.getOutputType()).toRowType().getFields();
-        int currentIndex = 0;
-        for (int oldIndex = 0; oldIndex < inputFields.size(); oldIndex++) {
-            RowType.RowField field = inputFields.get(oldIndex);
-            LogicalType fieldType = field.getType();
-            inputTypeList.add(DescriptionUtil.getFieldType(fieldType));
-            accessIndexMap.put(oldIndex, currentIndex);
-            currentIndex++;
-        }
+        // 1. 输入类型
+        List<String> inputTypeList = DescriptionUtil.getFieldTypeList(inputRowType.getFields());
 
-        // get outputTypes info
-        List<String> outputTypeList = new ArrayList<>();
-        List<RowType.RowField> outputFields = ((RowType) getOutputType()).getFields();
-        for (RowType.RowField field : outputFields) {
-            LogicalType fieldType = field.getType();
-            outputTypeList.add(DescriptionUtil.getFieldType(fieldType));
-        }
+        // 2. 输出类型
+        List<String> outputTypeList = DescriptionUtil.getFieldTypeList(
+                ((RowType) getOutputType()).getFields());
 
-        // extract function info from invocation
-        String functionName = "";
-        String functionClass = "";
-        SqlOperator operator = invocation.getOperator();
-        if (operator instanceof BridgingSqlFunction) {
-            BridgingSqlFunction bridgingFunc = (BridgingSqlFunction) operator;
-            functionName = bridgingFunc.getName();
-            functionClass = bridgingFunc.getDefinition().getClass().getName();
-        } else {
-            functionName = operator.getName();
-            functionClass = operator.getClass().getName();
-        }
+        // 3. UDTF 返回类型
+        RowType functionResultType = FlinkTypeFactory.toLogicalRowType(invocation.getType());
+        List<String> functionResultTypeList = DescriptionUtil.getFieldTypeList(
+                functionResultType.getFields());
 
-        // extract function argument indices from invocation operands
+        // 4. 函数名和类名
+        String functionName = extractFunctionName(invocation);
+        String functionClass = extractFunctionClass(invocation);
+
+        // 5. ★ 直接提取参数索引，不调用 buildJsonMap() ★
         List<Integer> functionArgIndices = new ArrayList<>();
         for (RexNode operand : invocation.getOperands()) {
             if (operand instanceof RexFieldAccess) {
@@ -164,26 +155,34 @@ public abstract class CommonExecCorrelate extends ExecNodeBase<RowData>
                 if (fieldAccess.getReferenceExpr() instanceof RexCorrelVariable) {
                     functionArgIndices.add(fieldAccess.getField().getIndex());
                 }
-            } else if (operand instanceof org.apache.calcite.rex.RexInputRef) {
-                functionArgIndices.add(((org.apache.calcite.rex.RexInputRef) operand).getIndex());
+            } else if (operand instanceof RexInputRef) {
+                functionArgIndices.add(((RexInputRef) operand).getIndex());
             }
         }
 
-        // get function result types
-        List<String> functionResultTypes = new ArrayList<>();
-        RowType outputType = (RowType) getOutputType();
-        int inputFieldCount = inputFields.size();
-        for (int i = inputFieldCount; i < outputType.getFieldCount(); i++) {
-            functionResultTypes.add(DescriptionUtil.getFieldType(outputType.getTypeAt(i)));
-        }
-
-        // build condition map
-        RexNodeUtil.accessIndexMap = accessIndexMap;
+        // 6. 可选的过滤条件
+        //    注意：condition 中也可能包含 RexFieldAccess(RexCorrelVariable)，
+        //    如果有 condition，也需要同样的处理（或暂时不序列化）
         Map<String, Object> conditionMap = null;
         if (condition != null) {
-            conditionMap = RexNodeUtil.buildJsonMap(condition);
+            // 先构建 accessIndexMap 再调用 buildJsonMap
+            // 但如果 condition 中也有 RexCorrelVariable，同样会 NPE
+            // 建议初期先不支持带 condition 的 Correlate，或者单独处理
+            try {
+                HashMap<Integer, Integer> accessIndexMap = new HashMap<>();
+                for (int i = 0; i < inputRowType.getFieldCount(); i++) {
+                    accessIndexMap.put(i, i);
+                }
+                RexNodeUtil.accessIndexMap = accessIndexMap;
+                conditionMap = RexNodeUtil.buildJsonMap(condition);
+                RexNodeUtil.accessIndexMap.clear();
+            } catch (Exception e) {
+                LOG.warn("Failed to serialize correlate condition, skipping", e);
+                conditionMap = null;
+            }
         }
 
+        // 7. 组装 JSON
         Map<String, Object> jsonMap = new LinkedHashMap<>();
         jsonMap.put("originDescription", oldDescription);
         jsonMap.put("joinType", joinType.toString());
@@ -192,7 +191,7 @@ public abstract class CommonExecCorrelate extends ExecNodeBase<RowData>
         jsonMap.put("functionArgIndices", functionArgIndices);
         jsonMap.put("inputTypes", inputTypeList);
         jsonMap.put("outputTypes", outputTypeList);
-        jsonMap.put("functionResultTypes", functionResultTypes);
+        jsonMap.put("functionResultTypes", functionResultTypeList);
         jsonMap.put("condition", conditionMap);
 
         String jsonString = "";
@@ -201,8 +200,48 @@ public abstract class CommonExecCorrelate extends ExecNodeBase<RowData>
         } catch (JsonProcessingException e) {
             LOG.warn("getExtraDescription error", e);
         }
-        RexNodeUtil.accessIndexMap.clear();
         return jsonString;
+    }
+
+    /**
+     * 从 RexCall 的 operator 中提取函数名。
+     * 支持两种函数类型：
+     * - BridgingSqlFunction（新版 Table Function）
+     * - TableSqlFunction（旧版 Legacy Table Function）
+     */
+    private String extractFunctionName(RexCall rexCall) {
+        SqlOperator operator = rexCall.getOperator();
+        if (operator instanceof BridgingSqlFunction) {
+            return ((BridgingSqlFunction) operator).getName();
+        } else if (operator instanceof TableSqlFunction) {
+            return operator.toString();
+        }
+        return operator.getName();
+    }
+
+    /**
+     * 从 RexCall 的 operator 中提取函数实现类的全限定类名。
+     * C++ 侧可通过此类名在 JNI 中实例化 TableFunction。
+     */
+    private String extractFunctionClass(RexCall rexCall) {
+        SqlOperator operator = rexCall.getOperator();
+        if (operator instanceof BridgingSqlFunction) {
+            BridgingSqlFunction func = (BridgingSqlFunction) operator;
+            FunctionDefinition definition = func.getDefinition();
+            if (definition instanceof UserDefinedFunction) {
+                return definition.getClass().getName();
+            }
+            // 对于 legacy TableFunctionDefinition
+            if (definition instanceof TableFunctionDefinition) {
+                return ((TableFunctionDefinition) definition)
+                        .getTableFunction().getClass().getName();
+            }
+            return definition.getClass().getName();
+        } else if (operator instanceof TableSqlFunction) {
+            TableSqlFunction tsf = (TableSqlFunction) operator;
+            return tsf.udtf().getClass().getName();
+        }
+        return "";
     }
 
     @SuppressWarnings("unchecked")
@@ -212,24 +251,27 @@ public abstract class CommonExecCorrelate extends ExecNodeBase<RowData>
         final ExecEdge inputEdge = getInputEdges().get(0);
         final Transformation<RowData> inputTransform =
                 (Transformation<RowData>) inputEdge.translateToPlan(planner);
+        final RowType inputRowType = (RowType) inputEdge.getOutputType();
         final CodeGeneratorContext ctx =
                 new CodeGeneratorContext(config, planner.getFlinkContext().getClassLoader())
                         .setOperatorBaseClass(operatorBaseClass);
-        Transformation<RowData> transformation = CorrelateCodeGenerator.generateCorrelateTransformation(
-                config,
-                ctx,
-                inputTransform,
-                (RowType) inputEdge.getOutputType(),
-                invocation,
-                JavaScalaConversionUtil.toScala(Optional.ofNullable(condition)),
-                (RowType) getOutputType(),
-                joinType,
-                inputTransform.getParallelism(),
-                retainHeader,
-                getClass().getSimpleName(),
-                createTransformationMeta(CORRELATE_TRANSFORMATION, config));
+        Transformation<RowData> transformation =
+                CorrelateCodeGenerator.generateCorrelateTransformation(
+                        config,
+                        ctx,
+                        inputTransform,
+                        (RowType) inputEdge.getOutputType(),
+                        invocation,
+                        JavaScalaConversionUtil.toScala(Optional.ofNullable(condition)),
+                        (RowType) getOutputType(),
+                        joinType,
+                        inputTransform.getParallelism(),
+                        retainHeader,
+                        getClass().getSimpleName(),
+                        createTransformationMeta(CORRELATE_TRANSFORMATION, config),
+                        false);
         String oldDescription = transformation.getDescription();
-        transformation.setDescription(getExtraDescription(oldDescription, inputTransform));
+        transformation.setDescription(getExtraDescription(oldDescription, inputRowType));
         return transformation;
     }
 }

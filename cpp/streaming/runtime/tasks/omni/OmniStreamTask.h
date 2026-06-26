@@ -19,6 +19,8 @@
 #include <streaming/runtime/tasks/OperatorChain.h>
 #include <streaming/runtime/partitioner/V2/KeyGroupStreamPartitionerV2.h>
 #include <utils/monitormmap/SHMMetric.h>
+
+#include "streaming/runtime/tasks/TimerService.h"
 #include "streaming/runtime/tasks/SubtaskCheckpointCoordinator.h"
 #include "runtime/jobgraph/tasks/CheckpointableTask.h"
 #include "streaming/runtime/tasks/mailbox/MailboxProcessor.h"
@@ -48,6 +50,12 @@ namespace omnistream {
 
         virtual ~OmniStreamTask()
         {
+            if (systemTimerService) {
+                systemTimerService->shutdownService();
+            }
+            if (timerService) {
+                timerService->shutdownService();
+            }
             if (inputProcessor_ != nullptr) {
                 delete inputProcessor_;
                 inputProcessor_ = nullptr;
@@ -93,12 +101,12 @@ namespace omnistream {
             return subtaskCheckpointCoordinator;
         }
 
-        void TriggerCheckpointOnBarrier(CheckpointMetaData* checkpointMetaData,
-            CheckpointOptions* checkpointOptions, CheckpointMetricsBuilder* checkpointMetrics) override
+        void TriggerCheckpointOnBarrier(std::shared_ptr<CheckpointMetaData> checkpointMetaData,
+            std::shared_ptr<CheckpointOptions> checkpointOptions, std::shared_ptr<CheckpointMetricsBuilder> checkpointMetrics) override
         {
             LOG(">>>>>>")
             try {
-                PerformCheckpoint(checkpointMetaData, checkpointOptions, checkpointMetrics);
+                PerformCheckpoint(checkpointMetaData, std::move(checkpointOptions), checkpointMetrics);
             } catch (...) {
                 LOG("Operator {} was cancelled while performing checkpoint {}." << getName() <<
                     checkpointMetaData->GetCheckpointId());
@@ -136,10 +144,10 @@ namespace omnistream {
         bool isCurrentSyncSavepoint(long checkpointId);
         void notifyCheckpointComplete(long checkpointId);
         std::shared_ptr<CompletableFutureV2<void>> notifyCheckpointCompleteAsync(long checkpointid);
-        std::shared_ptr<CompletableFutureV2<void>>notifyCheckpointSubsumedAsync(long checkpointid);
+        std::shared_ptr<CompletableFutureV2<void>> notifyCheckpointSubsumedAsync(long checkpointid);
         std::shared_ptr<CompletableFutureV2<void>> notifyCheckpointAbortAsync(long checkpointid, long latestCompletedCheckpointId);
-        std::shared_ptr<CompletableFutureV2<bool>> triggerCheckpointAsync(CheckpointMetaData* checkpointMetaData,
-            CheckpointOptions* checkpointOptions);
+        std::shared_ptr<CompletableFutureV2<bool>> triggerCheckpointAsync(std::shared_ptr<CheckpointMetaData> checkpointMetaData,
+            std::shared_ptr<CheckpointOptions> checkpointOptions);
         StreamPartitionerV2<StreamRecord> *createPartitionerFromDesc(StreamPartitionerPOD partitioner);
 
         datastream::StreamPartitioner<IOReadableWritable> *createPartitionerFromDesc(const StreamEdgePOD &edge);
@@ -172,8 +180,8 @@ namespace omnistream {
         TaskMailbox* mailbox_; // 负责存储相应 task 任务（也就是 mail），它支持多写单读，单线程读取并处理, delete by MailboxProcessor
         std::unique_ptr<MailboxProcessor> mailboxProcessor_; // MailBox 的核心处理线程，MailboxDefaultAction 是其默认的 action 实现
         std::shared_ptr<MailboxExecutor> mainMailboxExecutor_; // 它负责向 MailBox 提交 task 任务
-        std::shared_ptr<ProcessingTimeService> timerService;
-        std::shared_ptr<SystemProcessingTimeService> systemTimerService;
+        std::shared_ptr<runtime::TimerService> timerService;
+        std::shared_ptr<runtime::TimerService> systemTimerService;
 
         TaskInformationPOD taskConfiguration_;
 
@@ -250,8 +258,8 @@ namespace omnistream {
 
         std::shared_ptr<CheckpointStorage> createCheckpointStorage(StateBackend* backend);
 
-        bool PerformCheckpoint(CheckpointMetaData* checkpointMetaData,
-            CheckpointOptions* checkpointOptions, CheckpointMetricsBuilder* checkpointMetrics);
+        bool PerformCheckpoint(std::shared_ptr<CheckpointMetaData> checkpointMetaData,
+            std::shared_ptr<CheckpointOptions> checkpointOptions, std::shared_ptr<CheckpointMetricsBuilder> checkpointMetrics);
 
         inline bool IsSynchronous(SnapshotType* checkpointType)
         {
@@ -266,10 +274,10 @@ namespace omnistream {
             // TTODO: Add ENABLE_CHECKPOINTS_AFTER_TASKS_FINISH and isCheckpointingEnabled to config
             return false;
         }
-        bool TriggerCheckpointAsyncInMailbox(CheckpointMetaData* checkpointMetaData,
-            CheckpointOptions* checkpointOptions);
-        bool triggerUnfinishedChannelsCheckpoint(CheckpointMetaData* checkpointMetaData,
-            CheckpointOptions* checkpointOptions);
+        bool TriggerCheckpointAsyncInMailbox(std::shared_ptr<CheckpointMetaData> checkpointMetaData,
+            std::shared_ptr<CheckpointOptions> checkpointOptions);
+        bool triggerUnfinishedChannelsCheckpoint(std::shared_ptr<CheckpointMetaData> checkpointMetaData,
+            std::shared_ptr<CheckpointOptions> checkpointOptions);
     };
 
     class StreamTaskAction : public MailboxDefaultAction {
