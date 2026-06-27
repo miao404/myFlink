@@ -175,7 +175,7 @@ public abstract class CommonExecCorrelate extends ExecNodeBase<RowData>
             if (operand instanceof RexFieldAccess) {
                 RexFieldAccess fieldAccess = (RexFieldAccess) operand;
                 if (fieldAccess.getReferenceExpr() instanceof RexCorrelVariable) {
-                    normalized = RexInputRef.of(
+                    normalized = new RexInputRef(
                             fieldAccess.getField().getIndex(), operand.getType());
                 }
             }
