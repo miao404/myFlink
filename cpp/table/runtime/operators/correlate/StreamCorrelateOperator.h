@@ -101,12 +101,6 @@ private:
     omniruntime::type::DataTypes argInputTypes_;
     std::unique_ptr<omniruntime::op::ExecutionContext> executionContext_;
     omniruntime::mem::AlignedBuffer<int32_t> selectedRowsBuffer_;
-
-    // Manual evaluation for recognized expressions (avoids JIT evaluator issues)
-    enum class ArgEvalMode { EVALUATOR, FIELD_REF, JSON_QUERY };
-    ArgEvalMode argEvalMode_ = ArgEvalMode::EVALUATOR;
-    int manualArgColIndex_ = -1;
-    std::string manualJsonPath_;
 };
 
 
