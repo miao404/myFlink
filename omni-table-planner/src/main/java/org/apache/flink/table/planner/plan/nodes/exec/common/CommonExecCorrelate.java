@@ -23,6 +23,7 @@ import org.apache.calcite.rex.RexCorrelVariable;
 import org.apache.calcite.rex.RexFieldAccess;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
+import org.apache.calcite.rex.RexShuttle;
 import org.apache.calcite.sql.SqlOperator;
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.configuration.ReadableConfig;
@@ -168,17 +169,22 @@ public abstract class CommonExecCorrelate extends ExecNodeBase<RowData>
         }
         RexNodeUtil.accessIndexMap = accessIndexMap;
 
+        // RexShuttle to recursively normalize RexFieldAccess(RexCorrelVariable)
+        // to RexInputRef throughout the entire expression tree
+        RexShuttle correlVarNormalizer = new RexShuttle() {
+            @Override
+            public RexNode visitFieldAccess(RexFieldAccess fieldAccess) {
+                if (fieldAccess.getReferenceExpr() instanceof RexCorrelVariable) {
+                    return new RexInputRef(
+                            fieldAccess.getField().getIndex(), fieldAccess.getType());
+                }
+                return super.visitFieldAccess(fieldAccess);
+            }
+        };
+
         List<Map<String, Object>> argExprList = new ArrayList<>();
         for (RexNode operand : invocation.getOperands()) {
-            RexNode normalized = operand;
-            // 归一化 RexFieldAccess(RexCorrelVariable) 为 RexInputRef
-            if (operand instanceof RexFieldAccess) {
-                RexFieldAccess fieldAccess = (RexFieldAccess) operand;
-                if (fieldAccess.getReferenceExpr() instanceof RexCorrelVariable) {
-                    normalized = new RexInputRef(
-                            fieldAccess.getField().getIndex(), operand.getType());
-                }
-            }
+            RexNode normalized = operand.accept(correlVarNormalizer);
             argExprList.add(RexNodeUtil.buildJsonMap(normalized));
         }
 
