@@ -35,6 +35,7 @@
 #include "OmniOperatorJIT/core/src/operator/execution_context.h"
 #include "OmniOperatorJIT/core/src/operator/config/operator_config.h"
 #include "OmniOperatorJIT/core/src/memory/aligned_buffer.h"
+#include "OmniOperatorJIT/core/src/codegen/functions/stringfunctions.h"
 
 class StreamCorrelateOperator : public OneInputStreamOperator,
                                 public AbstractStreamOperator<int> {
@@ -67,26 +68,6 @@ public:
     std::string getTypeName() override {
         return "StreamCorrelateOperator";
     }
-
-    /**
-     * Evaluate json_query on a single input string.
-     * Behavior aligned with operatoromni's JsonQueryRetNull:
-     *  - Supports dotted paths ($.a.b.c) and array subscripts ($.a[0].b)
-     *  - Returns the JSON-serialized result only for objects/arrays; scalars → null
-     *  - Null/empty/invalid input → null
-     * @param input  The raw JSON string to query
-     * @param path   JSON path expression (must start with "$.")
-     * @param isNull [out] set to true if result is null
-     * @return The extracted JSON fragment, or empty string if isNull
-     */
-    static std::string evalJsonQuery(std::string_view input, const std::string& path, bool& isNull);
-
-    /**
-     * Parse a JSON path expression into a list of navigation keys.
-     * Supports: $.key, $.key1.key2, $.arr[0], $.arr[0].nested, $['key'], $[0]
-     * Aligned with operatoromni's ParseJsonPath.
-     */
-    static std::vector<std::string> parseJsonPath(const std::string& path);
 
 private:
     void parseDescription(const nlohmann::json& desc);

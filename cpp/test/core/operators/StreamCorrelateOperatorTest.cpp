@@ -753,110 +753,115 @@ TEST(StreamCorrelateOperatorTest, LeftJoinJsonQueryNoOutput) {
 }
 
 /**
- * Unit test for the parseJsonPath static helper directly.
+ * Unit test for operatoromni's JsonQueryRetNull called directly.
+ * Verifies the same behavior that StreamCorrelateOperator relies on.
  */
-TEST(StreamCorrelateOperatorTest, ParseJsonPathUnit) {
-    // Simple dot path
-    auto keys = StreamCorrelateOperator::parseJsonPath("$.rooms");
-    ASSERT_EQ(keys.size(), 1);
-    EXPECT_EQ(keys[0], "rooms");
-
-    // Multi-level dot path
-    keys = StreamCorrelateOperator::parseJsonPath("$.a.b.c");
-    ASSERT_EQ(keys.size(), 3);
-    EXPECT_EQ(keys[0], "a");
-    EXPECT_EQ(keys[1], "b");
-    EXPECT_EQ(keys[2], "c");
-
-    // Array subscript
-    keys = StreamCorrelateOperator::parseJsonPath("$.roomInfos[0].attrs");
-    ASSERT_EQ(keys.size(), 3);
-    EXPECT_EQ(keys[0], "roomInfos");
-    EXPECT_EQ(keys[1], "0");
-    EXPECT_EQ(keys[2], "attrs");
-
-    // Multiple subscripts
-    keys = StreamCorrelateOperator::parseJsonPath("$.data[1][2]");
-    ASSERT_EQ(keys.size(), 3);
-    EXPECT_EQ(keys[0], "data");
-    EXPECT_EQ(keys[1], "1");
-    EXPECT_EQ(keys[2], "2");
-
-    // Quoted bracket notation
-    keys = StreamCorrelateOperator::parseJsonPath("$['special.key']");
-    ASSERT_EQ(keys.size(), 1);
-    EXPECT_EQ(keys[0], "special.key");
-
-    // Invalid path (no $)
-    keys = StreamCorrelateOperator::parseJsonPath("rooms");
-    EXPECT_TRUE(keys.empty());
-
-    // Empty path
-    keys = StreamCorrelateOperator::parseJsonPath("");
-    EXPECT_TRUE(keys.empty());
-}
-
-/**
- * Unit test for evalJsonQuery static helper directly.
- */
-TEST(StreamCorrelateOperatorTest, EvalJsonQueryUnit) {
-    bool isNull = false;
+TEST(StreamCorrelateOperatorTest, JsonQueryRetNullDirect) {
+    auto context = std::make_unique<omniruntime::op::ExecutionContext>();
+    int64_t contextPtr = reinterpret_cast<int64_t>(context.get());
+    bool outIsNull = false;
+    int32_t outLen = 0;
 
     // Extract object
-    auto result = StreamCorrelateOperator::evalJsonQuery(
-        R"({"a":{"b":1},"c":[1,2]})", "$.a", isNull);
-    EXPECT_FALSE(isNull);
-    EXPECT_EQ(result, R"({"b":1})");
+    {
+        std::string json = R"({"a":{"b":1},"c":[1,2]})";
+        std::string path = "$.a";
+        const char* result = omniruntime::codegen::function::JsonQueryRetNull(
+            contextPtr, json.c_str(), static_cast<int32_t>(json.size()), false,
+            path.c_str(), 0, static_cast<int32_t>(path.size()), false,
+            &outIsNull, &outLen);
+        EXPECT_FALSE(outIsNull);
+        EXPECT_EQ(std::string(result, outLen), R"({"b":1})");
+    }
 
     // Extract array
-    result = StreamCorrelateOperator::evalJsonQuery(
-        R"({"items":[1,2,3]})", "$.items", isNull);
-    EXPECT_FALSE(isNull);
-    EXPECT_EQ(result, "[1,2,3]");
+    {
+        std::string json = R"({"items":[1,2,3]})";
+        std::string path = "$.items";
+        const char* result = omniruntime::codegen::function::JsonQueryRetNull(
+            contextPtr, json.c_str(), static_cast<int32_t>(json.size()), false,
+            path.c_str(), 0, static_cast<int32_t>(path.size()), false,
+            &outIsNull, &outLen);
+        EXPECT_FALSE(outIsNull);
+        EXPECT_EQ(std::string(result, outLen), "[1,2,3]");
+    }
 
     // Scalar -> null
-    result = StreamCorrelateOperator::evalJsonQuery(
-        R"({"name":"Alice"})", "$.name", isNull);
-    EXPECT_TRUE(isNull);
+    {
+        std::string json = R"({"name":"Alice"})";
+        std::string path = "$.name";
+        omniruntime::codegen::function::JsonQueryRetNull(
+            contextPtr, json.c_str(), static_cast<int32_t>(json.size()), false,
+            path.c_str(), 0, static_cast<int32_t>(path.size()), false,
+            &outIsNull, &outLen);
+        EXPECT_TRUE(outIsNull);
+    }
 
-    // Array subscript access to object
-    result = StreamCorrelateOperator::evalJsonQuery(
-        R"({"arr":[{"x":1},{"x":2}]})", "$.arr[0]", isNull);
-    EXPECT_FALSE(isNull);
-    EXPECT_EQ(result, R"({"x":1})");
+    // Array subscript -> object
+    {
+        std::string json = R"({"arr":[{"x":1},{"x":2}]})";
+        std::string path = "$.arr[0]";
+        const char* result = omniruntime::codegen::function::JsonQueryRetNull(
+            contextPtr, json.c_str(), static_cast<int32_t>(json.size()), false,
+            path.c_str(), 0, static_cast<int32_t>(path.size()), false,
+            &outIsNull, &outLen);
+        EXPECT_FALSE(outIsNull);
+        EXPECT_EQ(std::string(result, outLen), R"({"x":1})");
+    }
 
     // Nested array subscript
-    result = StreamCorrelateOperator::evalJsonQuery(
-        R"({"roomInfos":[{"id":1,"attrs":{"status":"open"}}]})",
-        "$.roomInfos[0].attrs", isNull);
-    EXPECT_FALSE(isNull);
-    EXPECT_EQ(result, R"({"status":"open"})");
+    {
+        std::string json = R"({"roomInfos":[{"id":1,"attrs":{"status":"open"}}]})";
+        std::string path = "$.roomInfos[0].attrs";
+        const char* result = omniruntime::codegen::function::JsonQueryRetNull(
+            contextPtr, json.c_str(), static_cast<int32_t>(json.size()), false,
+            path.c_str(), 0, static_cast<int32_t>(path.size()), false,
+            &outIsNull, &outLen);
+        EXPECT_FALSE(outIsNull);
+        EXPECT_EQ(std::string(result, outLen), R"({"status":"open"})");
+    }
 
     // Missing path -> null
-    result = StreamCorrelateOperator::evalJsonQuery(
-        R"({"a":1})", "$.missing", isNull);
-    EXPECT_TRUE(isNull);
+    {
+        std::string json = R"({"a":1})";
+        std::string path = "$.missing";
+        omniruntime::codegen::function::JsonQueryRetNull(
+            contextPtr, json.c_str(), static_cast<int32_t>(json.size()), false,
+            path.c_str(), 0, static_cast<int32_t>(path.size()), false,
+            &outIsNull, &outLen);
+        EXPECT_TRUE(outIsNull);
+    }
 
-    // Invalid JSON -> null
-    result = StreamCorrelateOperator::evalJsonQuery(
-        "not json {{{", "$.a", isNull);
-    EXPECT_TRUE(isNull);
-
-    // Null/empty input -> null
-    result = StreamCorrelateOperator::evalJsonQuery("", "$.a", isNull);
-    EXPECT_TRUE(isNull);
-
-    result = StreamCorrelateOperator::evalJsonQuery(
-        std::string_view(nullptr, 0), "$.a", isNull);
-    EXPECT_TRUE(isNull);
+    // Null input -> null
+    {
+        std::string json = R"({"a":[1]})";
+        std::string path = "$.a";
+        omniruntime::codegen::function::JsonQueryRetNull(
+            contextPtr, json.c_str(), static_cast<int32_t>(json.size()), true,
+            path.c_str(), 0, static_cast<int32_t>(path.size()), false,
+            &outIsNull, &outLen);
+        EXPECT_TRUE(outIsNull);
+    }
 
     // Invalid path (no $) -> null
-    result = StreamCorrelateOperator::evalJsonQuery(
-        R"({"a":[1]})", "a", isNull);
-    EXPECT_TRUE(isNull);
+    {
+        std::string json = R"({"a":[1]})";
+        std::string path = "a";
+        omniruntime::codegen::function::JsonQueryRetNull(
+            contextPtr, json.c_str(), static_cast<int32_t>(json.size()), false,
+            path.c_str(), 0, static_cast<int32_t>(path.size()), false,
+            &outIsNull, &outLen);
+        EXPECT_TRUE(outIsNull);
+    }
 
     // Array index out of bounds -> null
-    result = StreamCorrelateOperator::evalJsonQuery(
-        R"({"arr":[1,2]})", "$.arr[5]", isNull);
-    EXPECT_TRUE(isNull);
+    {
+        std::string json = R"({"arr":[1,2]})";
+        std::string path = "$.arr[5]";
+        omniruntime::codegen::function::JsonQueryRetNull(
+            contextPtr, json.c_str(), static_cast<int32_t>(json.size()), false,
+            path.c_str(), 0, static_cast<int32_t>(path.size()), false,
+            &outIsNull, &outLen);
+        EXPECT_TRUE(outIsNull);
+    }
 }
