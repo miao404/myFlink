@@ -12,6 +12,7 @@
 #include "StreamCorrelateOperator.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
+#include <cctype>
 
 using namespace omniruntime::type;
 using namespace omniruntime::vec;
@@ -171,6 +172,175 @@ void StreamCorrelateOperator::parseDescription(const nlohmann::json& desc)
                                                         << ", isLeftJoin=" << isLeftJoin_)
 }
 
+// ---------------------------------------------------------------------------
+// parseJsonPath: Parse a JSON path into navigation keys.
+// Aligned with operatoromni's ParseJsonPath (supports dot notation, bracket
+// notation with quotes, and array subscripts).
+// ---------------------------------------------------------------------------
+std::vector<std::string> StreamCorrelateOperator::parseJsonPath(const std::string& path)
+{
+    std::vector<std::string> keys;
+    if (path.empty() || path[0] != '$') {
+        return keys;
+    }
+
+    enum State {
+        EXPECT_DOT_OR_BRACKET,
+        IN_DOT_NOTATION,
+        IN_BRACKET,
+        IN_QUOTED_KEY
+    };
+
+    State state = EXPECT_DOT_OR_BRACKET;
+    std::string currentKey;
+    char quoteChar = '\0';
+
+    for (size_t i = 1; i < path.size(); ++i) {
+        char c = path[i];
+
+        switch (state) {
+            case EXPECT_DOT_OR_BRACKET:
+                if (c == '.') {
+                    state = IN_DOT_NOTATION;
+                } else if (c == '[') {
+                    state = IN_BRACKET;
+                } else if (!std::isspace(static_cast<unsigned char>(c))) {
+                    return keys;
+                }
+                break;
+
+            case IN_DOT_NOTATION:
+                if (c == '.') {
+                    if (!currentKey.empty()) {
+                        keys.push_back(currentKey);
+                        currentKey.clear();
+                    }
+                } else if (c == '[') {
+                    if (!currentKey.empty()) {
+                        keys.push_back(currentKey);
+                        currentKey.clear();
+                    }
+                    state = IN_BRACKET;
+                } else if (std::isspace(static_cast<unsigned char>(c))) {
+                    if (!currentKey.empty()) {
+                        keys.push_back(currentKey);
+                        currentKey.clear();
+                    }
+                    state = EXPECT_DOT_OR_BRACKET;
+                } else {
+                    currentKey += c;
+                }
+                break;
+
+            case IN_BRACKET:
+                if (c == '\'' || c == '"') {
+                    quoteChar = c;
+                    state = IN_QUOTED_KEY;
+                } else if (c == ']') {
+                    if (!currentKey.empty()) {
+                        keys.push_back(currentKey);
+                        currentKey.clear();
+                    }
+                    state = EXPECT_DOT_OR_BRACKET;
+                } else if (!std::isspace(static_cast<unsigned char>(c))) {
+                    currentKey += c;
+                }
+                break;
+
+            case IN_QUOTED_KEY:
+                if (c == '\\' && i + 1 < path.size()) {
+                    char nextChar = path[i + 1];
+                    if (nextChar == quoteChar || nextChar == '\\') {
+                        currentKey += nextChar;
+                        ++i;
+                    } else {
+                        currentKey += c;
+                    }
+                } else if (c == quoteChar) {
+                    state = IN_BRACKET;
+                    quoteChar = '\0';
+                } else {
+                    currentKey += c;
+                }
+                break;
+        }
+    }
+
+    if (!currentKey.empty()) {
+        keys.push_back(currentKey);
+    }
+
+    return keys;
+}
+
+// ---------------------------------------------------------------------------
+// evalJsonQuery: Evaluate json_query on a single input string.
+// Behavior aligned with operatoromni's JsonQueryRetNull:
+//  - Only returns non-null for object/array results
+//  - Scalars, missing paths, invalid JSON → null
+//  - Supports array subscripts in path (e.g. $.roomInfos[0].attrs)
+// ---------------------------------------------------------------------------
+std::string StreamCorrelateOperator::evalJsonQuery(
+        std::string_view input, const std::string& path, bool& isNull)
+{
+    isNull = true;
+
+    if (input.data() == nullptr || input.empty()
+            || input.size() >= static_cast<size_t>(64 * 1024 * 1024)) {
+        return {};
+    }
+
+    std::vector<std::string> keys = parseJsonPath(path);
+    if (keys.empty()) {
+        return {};
+    }
+
+    try {
+        auto doc = nlohmann::json::parse(input.begin(), input.end());
+        nlohmann::json* current = &doc;
+
+        for (const auto& key : keys) {
+            if (current->is_object()) {
+                if (!current->contains(key)) {
+                    return {};
+                }
+                current = &((*current)[key]);
+            } else if (current->is_array()) {
+                // Attempt numeric index
+                size_t idx = 0;
+                bool validNum = !key.empty();
+                for (char ch : key) {
+                    if (!std::isdigit(static_cast<unsigned char>(ch))) {
+                        validNum = false;
+                        break;
+                    }
+                }
+                if (!validNum) {
+                    return {};
+                }
+                idx = std::stoul(key);
+                if (idx >= current->size()) {
+                    return {};
+                }
+                current = &((*current)[idx]);
+            } else {
+                return {};
+            }
+        }
+
+        // Aligned with JsonQueryRetNull: only return object/array, not scalars
+        if (current == nullptr || current->is_null()
+                || (!current->is_object() && !current->is_array())) {
+            return {};
+        }
+
+        isNull = false;
+        return current->dump();
+    } catch (const std::exception&) {
+        return {};
+    }
+}
+
 void StreamCorrelateOperator::processBatch(StreamRecord* input)
 {
     auto* inputBatch = reinterpret_cast<omnistream::VectorBatch*>(input->getValue());
@@ -183,28 +353,18 @@ void StreamCorrelateOperator::processBatch(StreamRecord* input)
     }
 
     // ========== 第一步：对每行调用 UDTF，收集结果 ==========
-    // inputRowIndices[i] = 该输出行对应的输入行号
-    // udtfResults[i]     = 该输出行的 UDTF 输出字符串
     std::vector<int> inputRowIndices;
     std::vector<std::string> udtfResults;
-    // 记录哪些输入行没有产生输出（用于 LEFT JOIN）
     std::vector<bool> hasOutput(inputRowCount, false);
 
-    // Evaluate UDTF argument per mode
     omniruntime::vec::VectorBatch* argEvalBatch = nullptr;
 
     if (argEvalMode_ == ArgEvalMode::JSON_QUERY) {
-        // Manual json_query evaluation using nlohmann::json (avoids JIT evaluator crash)
+        // Manual json_query evaluation (avoids JIT evaluator crash on null inputs)
         INFO_RELEASE("StreamCorrelateOperator::processBatch JSON_QUERY manual eval, col="
                      << manualArgColIndex_ << " path=" << manualJsonPath_
                      << " rows=" << inputRowCount)
         BaseVector* srcVec = inputBatch->Get(manualArgColIndex_);
-        // Parse the JSON path: "$.field" → "field", "$.a.b" → navigate nested
-        // Support simple single-level paths like "$.roomRate"
-        std::string pathField;
-        if (manualJsonPath_.size() > 2 && manualJsonPath_.substr(0, 2) == "$.") {
-            pathField = manualJsonPath_.substr(2);
-        }
 
         for (int row = 0; row < inputRowCount; row++) {
             std::string argValue;
@@ -219,34 +379,10 @@ void StreamCorrelateOperator::processBatch(StreamRecord* input)
                     auto* castedVec = reinterpret_cast<DictVarcharVec*>(srcVec);
                     sv = castedVec->GetValue(row);
                 }
-                if (sv.data() != nullptr && sv.size() > 0
-                        && sv.size() < static_cast<size_t>(64 * 1024 * 1024)) {
-                    std::string inputStr(sv.data(), sv.size());
-                    try {
-                        auto doc = nlohmann::json::parse(inputStr);
-                        // Navigate path (support dotted paths like "a.b.c")
-                        nlohmann::json* current = &doc;
-                        std::string remaining = pathField;
-                        bool valid = true;
-                        while (!remaining.empty() && current != nullptr) {
-                            size_t dotPos = remaining.find('.');
-                            std::string key = (dotPos == std::string::npos)
-                                ? remaining : remaining.substr(0, dotPos);
-                            remaining = (dotPos == std::string::npos)
-                                ? "" : remaining.substr(dotPos + 1);
-                            if (current->is_object() && current->contains(key)) {
-                                current = &((*current)[key]);
-                            } else {
-                                valid = false;
-                                break;
-                            }
-                        }
-                        if (valid && current != nullptr && !current->is_null()) {
-                            argValue = current->dump();
-                        }
-                    } catch (const nlohmann::json::exception&) {
-                        // Parse error → treat as null (empty argValue)
-                    }
+                bool queryIsNull = true;
+                argValue = evalJsonQuery(sv, manualJsonPath_, queryIsNull);
+                if (queryIsNull) {
+                    argValue.clear();
                 }
             }
 
