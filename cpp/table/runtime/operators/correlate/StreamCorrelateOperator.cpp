@@ -30,8 +30,12 @@ StreamCorrelateOperator::StreamCorrelateOperator(
 
 StreamCorrelateOperator::~StreamCorrelateOperator()
 {
-    delete timestampedCollector_;
+    if (!argExprs_.empty()) {
+        omniruntime::expressions::Expr::DeleteExprs(argExprs_);
+        argExprs_.clear();
+    }
     delete argEvaluator_;
+    delete timestampedCollector_;
 }
 
 void StreamCorrelateOperator::open()
@@ -70,6 +74,7 @@ void StreamCorrelateOperator::open()
         argEvaluator_ = new omniruntime::codegen::ExpressionEvaluator(
                 argExprs_, argInputTypes_, ofConfig);
         argEvaluator_->ProjectFuncGeneration();
+        delete ofConfig;  // evaluator copies it internally
         INFO_RELEASE("StreamCorrelateOperator::open expression evaluator built successfully")
     } else if (hasFunctionArgs_) {
         INFO_RELEASE("StreamCorrelateOperator::open using manual evaluation mode="
@@ -78,6 +83,7 @@ void StreamCorrelateOperator::open()
                      << " jsonPath=" << manualJsonPath_)
     }
 
+    delete timestampedCollector_;
     timestampedCollector_ = new TimestampedCollector(this->output);
 }
 
@@ -247,6 +253,9 @@ void StreamCorrelateOperator::evaluateUdtfRows(
                 }
             }
         }
+        // Reset arena — JsonQueryRetNull allocates via ArenaAllocatorMalloc
+        // and Evaluate() is not called here to do its own reset
+        executionContext_->GetArena()->Reset();
         return;
     }
 
