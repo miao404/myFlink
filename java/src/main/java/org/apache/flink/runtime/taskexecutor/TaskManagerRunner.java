@@ -577,10 +577,21 @@ public class TaskManagerRunner implements FatalErrorHandler {
             System.exit(FAILURE_EXIT_CODE);
         }
 
+        initTMConfiguration(checkNotNull(configuration));
+        runTaskManagerProcessSecurely(checkNotNull(configuration));
+    }
+
+    /**
+     * Serializes the configuration to JSON and hands it over to the native runtime. Exposed so that
+     * alternative entry points (e.g. the Kubernetes TaskExecutor runner) can initialize the native
+     * TaskManager configuration the same way the standalone/YARN entry point does.
+     *
+     * @param configuration configuration
+     */
+    public static void initTMConfiguration(Configuration configuration) {
         JSONObject config = new JSONObject(configuration.toMap());
         LOG.info("init TMConfiguration: {}", config);
         initTMConfiguration(config.toString());
-        runTaskManagerProcessSecurely(checkNotNull(configuration));
     }
 
     private static native void initTMConfiguration(String config);
