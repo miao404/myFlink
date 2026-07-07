@@ -1084,4 +1084,8 @@ public class StreamGraph implements Pipeline {
             streamNode.setSupportsConcurrentExecutionAttempts(supportsConcurrentExecutionAttempts);
         }
     }
+
+    public void setOriginStreamGraph(StreamGraph streamGraph) {
+        return;
+    }
 }

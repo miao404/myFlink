@@ -24,7 +24,7 @@ public class ValidateCorrelateOPStrategy extends AbstractValidateOperatorStrateg
     private static final Logger LOG = LoggerFactory.getLogger(ValidateCorrelateOPStrategy.class);
     private static final Set<String> SUPPORT_JOIN_TYPE = new HashSet<>(Arrays.asList("InnerJoin", "LeftOuterJoin"));
     private static final Set<String> NATIVE_SUPPORTED_FUNCTIONS =
-            new HashSet<>(Arrays.asList("jsontest"));
+            new HashSet<>(Arrays.asList("jsontest", "nrejsontest"));
 
     @SuppressWarnings("unchecked")
     @Override

@@ -230,12 +230,14 @@ public class TaskManagerRunner implements FatalErrorHandler {
             HeartbeatServices heartbeatServices =
                     HeartbeatServices.fromConfiguration(configuration);
 
+            String appName = "metric";
+
             metricRegistry =
                     new MetricRegistryImpl(
                             MetricRegistryConfiguration.fromConfiguration(
                                     configuration,
                                     rpcSystem.getMaximumMessageSizeInBytes(configuration)),
-                            ReporterSetup.fromConfiguration(configuration, pluginManager));
+                            ReporterSetup.fromConfiguration(configuration, pluginManager), appName);
 
             final RpcService metricQueryServiceRpcService =
                     MetricUtils.startRemoteMetricsRpcService(
@@ -577,10 +579,14 @@ public class TaskManagerRunner implements FatalErrorHandler {
             System.exit(FAILURE_EXIT_CODE);
         }
 
+        initTMConfiguration(checkNotNull(configuration));
+        runTaskManagerProcessSecurely(checkNotNull(configuration));
+    }
+
+    public static void initTMConfiguration(Configuration configuration) {
         JSONObject config = new JSONObject(configuration.toMap());
         LOG.info("init TMConfiguration: {}", config);
         initTMConfiguration(config.toString());
-        runTaskManagerProcessSecurely(checkNotNull(configuration));
     }
 
     private static native void initTMConfiguration(String config);

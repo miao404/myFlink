@@ -58,8 +58,12 @@ private:
         static std::unordered_map<std::string, Creator> registry = {
                 // ===== 在这里注册新的 native TableFunction =====
                 {
-                        "jsontest",  //TODO 应该注册functionName还是functionClass
-                        []() { return std::make_unique<JsonSplitFunction>(); }
+                    "jsontest", //TODO 应该注册functionName还是functionClass
+                    []() { return std::make_unique<JsonSplitFunction>(); }
+                },
+                {
+                    "nrejsontest",
+                    []() { return std::make_unique<JsonSplitFunction>(); }
                 }
                 // 后续新增示例：
                 // {
