@@ -137,7 +137,13 @@ public class OmniCreditBasedSequenceNumberingViewReader
             int subPartitionIndex)
             throws IOException {
         synchronized (requestLock) {
+            LOG.info("[SUPER_REQUEST_BEGIN] task: {}, subPartitionIndex: {}",
+                    taskName != null ? taskName.substring(0, Math.min(15, taskName.length())) : "null",
+                    subPartitionIndex);
             super.requestSubpartitionView(partitionProvider, resultPartitionId, subPartitionIndex);
+            LOG.info("[SUPER_REQUEST_SUCCESS] task: {}, subPartitionIndex: {}",
+                    taskName != null ? taskName.substring(0, Math.min(15, taskName.length())) : "null",
+                    subPartitionIndex);
 
             ResultPartitionIDPOJO resultPartitionIDPOJO = new ResultPartitionIDPOJO(resultPartitionId);
             JSONObject jsonObject = new JSONObject(resultPartitionIDPOJO);
@@ -145,29 +151,48 @@ public class OmniCreditBasedSequenceNumberingViewReader
             this.subPartitionIndex = subPartitionIndex;
             this.partitionId = parititonIdString;
             try {
-                LOG.info("requestSubpartitionView for task: {} ## {}", taskName.substring(0, 15), subPartitionIndex);
                 nativeCreditBasedSequenceNumberingViewReaderRef = createNativeCreditBasedSequenceNumberingViewReader(
                         nativeTaskRef, statusAddress, partitionId, subPartitionIndex);
                 if (nativeCreditBasedSequenceNumberingViewReaderRef == -1) {
-                    LOG.error("create nativeCreditBasedSequenceNumberingViewReader failed");
+                    LOG.error("[NATIVE_CREATE_FAILED] nativeRef == -1, task: {} ## {}",
+                            taskName.substring(0, 15), subPartitionIndex);
+                    cleanupAfterNativeCreateFailure(resultPartitionId,
+                            new RuntimeException("native reader ref returned -1"));
                     throw new PartitionNotFoundException(resultPartitionId);
                 }
-                LOG.info("ViewReader for task : {} ## {} create result = {},{}",
+                LOG.info("[NATIVE_CREATE_SUCCESS] task: {} ## {}, nativeRef={}, hash={}",
                         taskName.substring(0, 15),
                         subPartitionIndex, nativeCreditBasedSequenceNumberingViewReaderRef,
                         this.hashCode());
+            } catch (PartitionNotFoundException pnf) {
+                throw pnf;
             } catch (Exception e) {
-                LOG.warn("Error in requestSubpartitionView, but we let it go", e);
+                LOG.error("[NATIVE_CREATE_EXCEPTION] Exception in requestSubpartitionView, task: {} ## {}",
+                        taskName.substring(0, 15), subPartitionIndex, e);
+                cleanupAfterNativeCreateFailure(resultPartitionId, e);
                 throw new PartitionNotFoundException(resultPartitionId);
             } catch (Error e) {
-                LOG.error("Error in requestSubpartitionView, but we let it go", e);
+                LOG.error("[NATIVE_CREATE_EXCEPTION] Error in requestSubpartitionView, task: {} ## {}",
+                        taskName.substring(0, 15), subPartitionIndex, e);
+                cleanupAfterNativeCreateFailure(resultPartitionId, e);
                 throw new PartitionNotFoundException(resultPartitionId);
             }
             Thread thread = new Thread(this);
             thread.start();
-            // start the thread
             startFirstDataAvailableNotificationThread();
         }
+    }
+
+    private void cleanupAfterNativeCreateFailure(ResultPartitionID resultPartitionId, Throwable cause) {
+        LOG.warn("[CLEANUP_AFTER_NATIVE_FAILURE_BEGIN] task: {} ## {}, partitionId: {}, cause: {}",
+                taskName.substring(0, 15), subPartitionIndex, resultPartitionId, cause.getMessage());
+        try {
+            super.releaseAllResources();
+        } catch (IOException ioe) {
+            LOG.warn("[CLEANUP_AFTER_NATIVE_FAILURE] super.releaseAllResources() threw exception", ioe);
+        }
+        LOG.warn("[CLEANUP_AFTER_NATIVE_FAILURE_END] task: {} ## {}, partitionId: {}",
+                taskName.substring(0, 15), subPartitionIndex, resultPartitionId);
     }
     
     private void startFirstDataAvailableNotificationThread() {
