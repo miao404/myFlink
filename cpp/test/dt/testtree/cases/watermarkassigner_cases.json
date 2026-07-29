@@ -1,0 +1,35 @@
+{
+  "METADATA": {
+    "description": "MyFlink DT case",
+    "version": "1.0.0",
+    "author": "",
+    "date": "2026-05-22"
+  },
+  "DATA": [
+    {
+      "WatermarkAssignerFuzzData": {
+        "timestampValue": 1000,
+        "dataValue": 42,
+        "outOfOrderTime": 200,
+        "emissionInterval": 100,
+        "loopCount": 50,
+        "timeRowIndex": 0,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 1
+    }
+  ],
+  "TEST": [
+    {
+      "SUITE_NAME": "suite-01",
+      "CASES": [
+        {
+          "id": "case1",
+          "apiName": "GlobalWatermarkAssignerFuzz($WatermarkAssignerFuzzData, $filterExpr, $chooseFunc)",
+          "exeMode": "fuzz"
+        }
+      ]
+    }
+  ]
+}

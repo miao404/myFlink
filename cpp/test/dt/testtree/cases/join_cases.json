@@ -1,0 +1,37 @@
+{
+  "METADATA": {
+    "description": "MyFlink DT case",
+    "version": "1.0.0",
+    "author": "",
+    "date": "2026-05-22"
+  },
+  "DATA": [
+    {
+      "JoinFuzzData": {
+        "leftKeyValue": 1,
+        "rightKeyValue": 1,
+        "windowEndTime": 10000,
+        "leftValue": 100,
+        "rightValue": 200,
+        "loopCount": 50,
+        "joinType": 0,
+        "rowKind": 0,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 1
+    }
+  ],
+  "TEST": [
+    {
+      "SUITE_NAME": "suite-01",
+      "CASES": [
+        {
+          "id": "case1",
+          "apiName": "GlobalJoinFuzz($JoinFuzzData, $filterExpr, $chooseFunc)",
+          "exeMode": "fuzz"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "METADATA": {
+    "description": "MyFlink DT case - WindowProcessFunction and TimeWindowAssigner fuzz tests",
+    "version": "1.0.0",
+    "author": "",
+    "date": "2026-06-02"
+  },
+  "DATA": [
+    {
+      "WindowFuzzData": {
+        "bidderValue": 10,
+        "timestampValue": 1742625620000,
+        "windowSize": 10000,
+        "timestamp2": 1742625621000,
+        "stateValue": 1,
+        "loopCount": 5,
+        "rowKind": 0,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 1
+    },
+    {
+      "WindowFuzzData": {
+        "bidderValue": 2,
+        "timestampValue": 1742625633598,
+        "windowSize": 10000,
+        "timestamp2": 1742625634598,
+        "stateValue": 0,
+        "loopCount": 5,
+        "rowKind": 0,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 2
+    },
+    {
+      "WindowFuzzData": {
+        "bidderValue": 1,
+        "timestampValue": 1742625600000,
+        "windowSize": 10000,
+        "timestamp2": 0,
+        "stateValue": 0,
+        "loopCount": 5,
+        "rowKind": 0,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 3
+    },
+    {
+      "WindowFuzzData": {
+        "bidderValue": 100,
+        "timestampValue": 1742625600000,
+        "windowSize": 10000,
+        "timestamp2": 1742625605000,
+        "stateValue": 0,
+        "loopCount": 5,
+        "rowKind": 0,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 4
+    },
+    {
+      "WindowFuzzData": {
+        "bidderValue": 1,
+        "timestampValue": 1000000,
+        "windowSize": 10000,
+        "timestamp2": 1005000,
+        "stateValue": 0,
+        "loopCount": 5,
+        "rowKind": 0,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 5
+    }
+  ],
+  "TEST": [
+    {
+      "SUITE_NAME": "suite-01",
+      "CASES": [
+        {
+          "id": "case1-window-state",
+          "apiName": "GlobalWindowFuzz($WindowFuzzData, $filterExpr, $chooseFunc)",
+          "exeMode": "fuzz"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "METADATA": {
+    "description": "MyFlink DT case - StreamMap operator fuzz tests covering core functions",
+    "version": "1.0.0",
+    "author": "",
+    "date": "2026-06-02"
+  },
+  "DATA": [
+    {
+      "MapFuzzData": {
+        "value1": 100,
+        "value2": 200,
+        "loopCount": 5,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 1
+    },
+    {
+      "MapFuzzData": {
+        "value1": 42,
+        "value2": 99,
+        "loopCount": 10,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 2
+    },
+    {
+      "MapFuzzData": {
+        "value1": 0,
+        "value2": 0,
+        "loopCount": 1,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 3
+    },
+    {
+      "MapFuzzData": {
+        "value1": 10,
+        "value2": 20,
+        "loopCount": 3,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 4
+    },
+    {
+      "MapFuzzData": {
+        "value1": 50,
+        "value2": 60,
+        "loopCount": 5,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 5
+    },
+    {
+      "MapFuzzData": {
+        "value1": 1000,
+        "value2": 2000,
+        "loopCount": 8,
+        "filterExpr": ""
+      },
+      "filterExpr": "",
+      "chooseFunc": 6
+    }
+  ],
+  "TEST": [
+    {
+      "SUITE_NAME": "suite-01",
+      "CASES": [
+        {
+          "id": "case1",
+          "apiName": "GlobalMapFuzz($MapFuzzData, $filterExpr, $chooseFunc)",
+          "exeMode": "fuzz"
+        }
+      ]
+    }
+  ]
+}
