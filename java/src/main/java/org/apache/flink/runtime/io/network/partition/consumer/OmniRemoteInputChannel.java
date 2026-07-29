@@ -12,7 +12,6 @@
 package org.apache.flink.runtime.io.network.partition.consumer;
 
 import java.io.IOException;
-import java.lang.reflect.Field;
 import java.util.Optional;
 
 /**
@@ -82,16 +81,7 @@ public class OmniRemoteInputChannel {
      * @return int
      */
     public int getSingleInputGateConsumedSubpartitionIndex() {
-        Class clazz = SingleInputGate.class;
-        try {
-            Field field = clazz.getDeclaredField("consumedSubpartitionIndex");
-            field.setAccessible(true);
-            return field.getInt(this.remoteInputChannel.inputGate);
-        } catch (IllegalAccessException e) {
-            throw new RuntimeException(e);
-        } catch (NoSuchFieldException e) {
-            throw new RuntimeException(e);
-        }
+        return this.remoteInputChannel.consumedSubpartitionIndex;
     }
 
     public void setDataReceived(boolean dataReceived) {

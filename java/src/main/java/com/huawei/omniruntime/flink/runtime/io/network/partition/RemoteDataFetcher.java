@@ -106,19 +106,44 @@ public class RemoteDataFetcher implements Runnable {
      * buildRemoteConnection
      */
     public void buildRemoteConnection() {
-        LOG.info("buildRemoteConnection for task: {} with {} remote channels", taskName, remoteInputChannels.size());
+        LOG.info("[BUILD_REMOTE_CONN_BEGIN] task={}, channelCount={}, thread={}, caller={}",
+                taskName, remoteInputChannels.size(), Thread.currentThread().getName(),
+                buildShortStackTrace(Thread.currentThread().getStackTrace(), 6));
         for (OmniRemoteInputChannel remoteInputChannel : remoteInputChannels) {
-            if (!remoteInputChannel.isConnected()) {
+            int gateIdx = remoteInputChannel.getGateIndex();
+            int channelIdx = remoteInputChannel.getChannelIndex();
+            String partitionId = remoteInputChannel.getRemoteInputChannel().getPartitionId().toString();
+            int subpartitionIdx = remoteInputChannel.getSingleInputGateConsumedSubpartitionIndex();
+            boolean connected = remoteInputChannel.isConnected();
+            LOG.info("[BUILD_REMOTE_CONN_CHANNEL] task={}, gate={}, channel={}, partitionId={}, subpartition={}, isConnected={}, omniChannelId={}, rawChannelId={}",
+                    taskName, gateIdx, channelIdx, partitionId, subpartitionIdx, connected,
+                    System.identityHashCode(remoteInputChannel),
+                    System.identityHashCode(remoteInputChannel.getRemoteInputChannel()));
+            if (!connected) {
                 try {
-                    LOG.info("buildRemoteConnection for task: {} remotechannel = {}", taskName,
-                            remoteInputChannel.getRemoteInputChannel());
+                    LOG.info("[BUILD_REMOTE_CONN_REQUEST_BEGIN] task={}, gate={}, channel={}, partitionId={}, subpartition={}",
+                            taskName, gateIdx, channelIdx, partitionId, subpartitionIdx);
                     remoteInputChannel.getRemoteInputChannel().requestSubpartition();
                     remoteInputChannel.setConnected(true);
+                    LOG.info("[BUILD_REMOTE_CONN_REQUEST_SUCCESS] task={}, gate={}, channel={}, partitionId={}, subpartition={}",
+                            taskName, gateIdx, channelIdx, partitionId, subpartitionIdx);
                 } catch (IOException | InterruptedException e) {
-                    LOG.error("Error requesting subpartition", e);
+                    LOG.error("[BUILD_REMOTE_CONN_REQUEST_FAILED] task={}, gate={}, channel={}, partitionId={}, subpartition={}, error={}",
+                            taskName, gateIdx, channelIdx, partitionId, subpartitionIdx, e.getMessage(), e);
                 }
             }
         }
+        LOG.info("[BUILD_REMOTE_CONN_END] task={}", taskName);
+    }
+
+    private static String buildShortStackTrace(StackTraceElement[] stack, int limit) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 2; i < Math.min(stack.length, limit + 2); i++) {
+            if (i > 2) sb.append(" <- ");
+            sb.append(stack[i].getClassName()).append(".").append(stack[i].getMethodName())
+              .append("(").append(stack[i].getFileName()).append(":").append(stack[i].getLineNumber()).append(")");
+        }
+        return sb.toString();
     }
 
     /**

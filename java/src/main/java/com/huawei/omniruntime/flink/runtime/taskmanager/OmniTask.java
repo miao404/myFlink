@@ -339,7 +339,13 @@ public class OmniTask extends Task {
             try {
                 LOG.info("Freeing task resources for {} ({}).", taskNameWithSubtask, executionId);
                 if (originalTaskDataFetcher != null) {
+                    LOG.info("[STOP_REMOTE_FETCHER_BEGIN] task={}, nativeTaskRef={}, fetcherId={}",
+                            this.getTaskInfo().getTaskNameWithSubtasks(), nativeTaskRef,
+                            System.identityHashCode(originalTaskDataFetcher));
                     originalTaskDataFetcher.finishRunning();
+                    LOG.info("[STOP_REMOTE_FETCHER_END] task={}, nativeTaskRef={}, fetcherId={}",
+                            this.getTaskInfo().getTaskNameWithSubtasks(), nativeTaskRef,
+                            System.identityHashCode(originalTaskDataFetcher));
                 }
                 deleteParentTaskInSlotTable();
                 // clear the reference to the invokable. this helps guard against holding references
@@ -977,6 +983,19 @@ public class OmniTask extends Task {
                 }
             }
             
+            LOG.info("[CREATE_REMOTE_FETCHER] task={}, nativeTaskRef={}, remoteChannelCount={}, localChannelCount={}",
+                    this.getTaskInfo().getTaskNameWithSubtasks(), nativeTaskRef,
+                    remoteInputChannels.size(), localInputChannels.size());
+            for (OmniRemoteInputChannel ch : remoteInputChannels) {
+                LOG.info("[CREATE_REMOTE_FETCHER_CHANNEL] task={}, gate={}, channel={}, partitionId={}, subpartition={}, omniChannelId={}, rawChannelId={}",
+                        this.getTaskInfo().getTaskNameWithSubtasks(),
+                        ch.getGateIndex(), ch.getChannelIndex(),
+                        ch.getRemoteInputChannel().getPartitionId(),
+                        ch.getSingleInputGateConsumedSubpartitionIndex(),
+                        System.identityHashCode(ch),
+                        System.identityHashCode(ch.getRemoteInputChannel()));
+            }
+
             if (!remoteInputChannels.isEmpty() || !localInputChannels.isEmpty()) {
                 OriginalTaskDataFetcher originalTaskDataFetcher = new OriginalTaskDataFetcher(nativeTaskRef,
                         this.getTaskInfo().getTaskNameWithSubtasks(), jobType);

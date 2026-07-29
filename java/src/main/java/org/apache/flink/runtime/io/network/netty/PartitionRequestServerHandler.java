@@ -52,6 +52,10 @@ import java.util.Map;
 class PartitionRequestServerHandler extends SimpleChannelInboundHandler<NettyMessage> {
     private static final Logger LOG = LoggerFactory.getLogger(PartitionRequestServerHandler.class);
 
+    // Diagnostic: track first request info for each (partitionId#queueIndex)
+    private static final java.util.concurrent.ConcurrentHashMap<String, String> partitionRequestRegistry =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     private final ResultPartitionProvider partitionProvider;
 
     private final TaskEventPublisher taskEventPublisher;
@@ -91,6 +95,24 @@ class PartitionRequestServerHandler extends SimpleChannelInboundHandler<NettyMes
 
                 LOG.debug("Read channel on {}: {}.", ctx.channel().localAddress(), request);
 
+                String diagKey = request.partitionId.toString() + "#" + request.queueIndex;
+                String firstInfo = "receiverId=" + request.receiverId
+                        + ",remote=" + ctx.channel().remoteAddress()
+                        + ",time=" + System.currentTimeMillis();
+                String prev = partitionRequestRegistry.putIfAbsent(diagKey, firstInfo);
+                if (prev != null) {
+                    LOG.error("[DUPLICATE_PARTITION_REQUEST] key={}, currentReceiverId={}, currentRemote={}, "
+                            + "previousInfo={}, thread={}",
+                            diagKey, request.receiverId, ctx.channel().remoteAddress(),
+                            prev, Thread.currentThread().getName());
+                } else {
+                    LOG.info("[SERVER_PARTITION_REQUEST] partitionId={}, queueIndex={}, receiverId={}, "
+                            + "credit={}, localAddr={}, remoteAddr={}, thread={}",
+                            request.partitionId, request.queueIndex, request.receiverId,
+                            request.credit, ctx.channel().localAddress(), ctx.channel().remoteAddress(),
+                            Thread.currentThread().getName());
+                }
+
                 try {
                     NetworkSequenceViewReader reader;
 
@@ -112,6 +134,8 @@ class PartitionRequestServerHandler extends SimpleChannelInboundHandler<NettyMes
                             partitionProvider, request.partitionId, request.queueIndex);
 
                     outboundQueue.notifyReaderCreated(reader);
+                    LOG.info("[SERVER_PARTITION_REQUEST_DONE] partitionId={}, queueIndex={}, isNative={}, readerId={}",
+                            request.partitionId, request.queueIndex, isNative, System.identityHashCode(reader));
                 } catch (PartitionNotFoundException notFound) {
                     respondWithError(ctx, notFound, request.receiverId);
                 }

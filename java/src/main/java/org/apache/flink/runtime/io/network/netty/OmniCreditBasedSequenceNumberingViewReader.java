@@ -137,7 +137,12 @@ public class OmniCreditBasedSequenceNumberingViewReader
             int subPartitionIndex)
             throws IOException {
         synchronized (requestLock) {
+            LOG.info("[OMNI_READER_SUPER_REQUEST_BEGIN] task={}, partitionId={}, subPartition={}, readerId={}, thread={}",
+                    taskName, resultPartitionId, subPartitionIndex,
+                    System.identityHashCode(this), Thread.currentThread().getName());
             super.requestSubpartitionView(partitionProvider, resultPartitionId, subPartitionIndex);
+            LOG.info("[OMNI_READER_SUPER_REQUEST_SUCCESS] task={}, partitionId={}, subPartition={}, readerId={}",
+                    taskName, resultPartitionId, subPartitionIndex, System.identityHashCode(this));
 
             ResultPartitionIDPOJO resultPartitionIDPOJO = new ResultPartitionIDPOJO(resultPartitionId);
             JSONObject jsonObject = new JSONObject(resultPartitionIDPOJO);
@@ -145,27 +150,32 @@ public class OmniCreditBasedSequenceNumberingViewReader
             this.subPartitionIndex = subPartitionIndex;
             this.partitionId = parititonIdString;
             try {
-                LOG.info("requestSubpartitionView for task: {} ## {}", taskName.substring(0, 15), subPartitionIndex);
+                LOG.info("[OMNI_READER_NATIVE_CREATE_BEGIN] task={} ## {}, readerId={}",
+                        taskName.substring(0, 15), subPartitionIndex, System.identityHashCode(this));
                 nativeCreditBasedSequenceNumberingViewReaderRef = createNativeCreditBasedSequenceNumberingViewReader(
                         nativeTaskRef, statusAddress, partitionId, subPartitionIndex);
                 if (nativeCreditBasedSequenceNumberingViewReaderRef == -1) {
-                    LOG.error("create nativeCreditBasedSequenceNumberingViewReader failed");
+                    LOG.error("[OMNI_READER_NATIVE_CREATE_FAILED] task={} ## {}, readerId={}, nativeRef=-1",
+                            taskName.substring(0, 15), subPartitionIndex, System.identityHashCode(this));
                     throw new PartitionNotFoundException(resultPartitionId);
                 }
-                LOG.info("ViewReader for task : {} ## {} create result = {},{}",
-                        taskName.substring(0, 15),
-                        subPartitionIndex, nativeCreditBasedSequenceNumberingViewReaderRef,
-                        this.hashCode());
+                LOG.info("[OMNI_READER_NATIVE_CREATE_SUCCESS] task={} ## {}, readerId={}, nativeRef={}, hashCode={}",
+                        taskName.substring(0, 15), subPartitionIndex,
+                        System.identityHashCode(this),
+                        nativeCreditBasedSequenceNumberingViewReaderRef, this.hashCode());
             } catch (Exception e) {
-                LOG.warn("Error in requestSubpartitionView, but we let it go", e);
+                LOG.warn("[OMNI_READER_NATIVE_CREATE_EXCEPTION] task={} ## {}, readerId={}, error={}",
+                        taskName.substring(0, 15), subPartitionIndex, System.identityHashCode(this), e.getMessage(), e);
                 throw new PartitionNotFoundException(resultPartitionId);
             } catch (Error e) {
-                LOG.error("Error in requestSubpartitionView, but we let it go", e);
+                LOG.error("[OMNI_READER_NATIVE_CREATE_ERROR] task={} ## {}, readerId={}, error={}",
+                        taskName.substring(0, 15), subPartitionIndex, System.identityHashCode(this), e.getMessage(), e);
                 throw new PartitionNotFoundException(resultPartitionId);
             }
+            LOG.info("[OMNI_READER_THREAD_START] task={} ## {}, readerId={}",
+                    taskName.substring(0, 15), subPartitionIndex, System.identityHashCode(this));
             Thread thread = new Thread(this);
             thread.start();
-            // start the thread
             startFirstDataAvailableNotificationThread();
         }
     }
@@ -221,9 +231,10 @@ public class OmniCreditBasedSequenceNumberingViewReader
                     }
                 } else {
                     synchronized (localChannelLocker) {
-                        LOG.error("nativeCreditBasedSequenceNumberingViewReaderRef is -1 for task: {} ## {},{},{}",
-                                taskName.substring(0, 15), subPartitionIndex, this.hashCode(),
-                                this.nativeCreditBasedSequenceNumberingViewReaderRef);
+                        LOG.error("[OMNI_READER_NATIVE_REF_MINUS1] task={} ## {}, readerId={}, nativeRef={}, javaSubpartitionView={}",
+                                taskName.substring(0, 15), subPartitionIndex, System.identityHashCode(this),
+                                this.nativeCreditBasedSequenceNumberingViewReaderRef,
+                                getSubpartitionView());
                         nativeCreditBasedSequenceNumberingViewReaderRef =
                                 createNativeCreditBasedSequenceNumberingViewReader(nativeTaskRef, statusAddress,
                                         partitionId, subPartitionIndex);
